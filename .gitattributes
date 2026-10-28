@@ -1,0 +1,2 @@
+Assets/Model/UMesh_PolySphere2_6_UV.asset filter=lfs diff=lfs merge=lfs -text
+Assets/Model/M2/textures/Leica_Low_TX_2_Leica_Normal.png filter=lfs diff=lfs merge=lfs -text
