@@ -20,9 +20,6 @@ public sealed class CameraDisplayHost : MonoBehaviour
         get { return Instance != null && Instance.isActiveAndEnabled; }
     }
 
-    [SerializeField] private Transform screenSurface;
-    [SerializeField] private Vector2 screenFill = new Vector2(0.42f, 0.92f);
-    [SerializeField] private float screenLift = 0.02f;
     [SerializeField] private int displayWidth = 1280;
     [SerializeField] private int displayHeight = 720;
 
@@ -55,6 +52,7 @@ public sealed class CameraDisplayHost : MonoBehaviour
         CreateDisplaySurface();
         CreateRenderTarget();
         RestrictHostCamera();
+        FrameHostCameraToBody();
     }
 
     private void Start()
@@ -158,6 +156,11 @@ public sealed class CameraDisplayHost : MonoBehaviour
         for (int i = 0; i < roots.Length; i++)
         {
             roots[i].transform.position += LevelWorldOffset;
+            AudioListener[] listeners = roots[i].GetComponentsInChildren<AudioListener>(true);
+            for (int j = 0; j < listeners.Length; j++)
+            {
+                listeners[j].enabled = false;
+            }
         }
     }
 
@@ -221,7 +224,6 @@ public sealed class CameraDisplayHost : MonoBehaviour
             Destroy(quadCollider);
         }
 
-        // PolySphere is the rear LCD glass. Sit the picture on that face, slightly toward the viewing camera.
         displayQuad.transform.SetParent(bodyRoot, false);
         Renderer lcdGlass = FindLcdGlassRenderer(bodyRoot);
         if (lcdGlass != null)
@@ -274,44 +276,88 @@ public sealed class CameraDisplayHost : MonoBehaviour
             return null;
         }
 
-        Transform glass = bodyRoot.Find("PolySphere");
-        if (glass == null)
+        Transform[] children = bodyRoot.GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < children.Length; i++)
         {
-            Transform[] children = bodyRoot.GetComponentsInChildren<Transform>(true);
-            for (int i = 0; i < children.Length; i++)
+            if (children[i].name == "PolySphere")
             {
-                if (children[i].name == "PolySphere")
-                {
-                    glass = children[i];
-                    break;
-                }
+                return children[i].GetComponent<Renderer>();
             }
         }
 
-        return glass != null ? glass.GetComponent<Renderer>() : null;
+        return null;
+    }
+
+    private static Camera FindHostCamera()
+    {
+        Camera hostCamera = Camera.main;
+        if (hostCamera != null && hostCamera.targetTexture == null)
+        {
+            return hostCamera;
+        }
+
+        Camera[] cameras = FindObjectsOfType<Camera>();
+        for (int i = 0; i < cameras.Length; i++)
+        {
+            if (cameras[i].CompareTag("MainCamera") && cameras[i].targetTexture == null)
+            {
+                return cameras[i];
+            }
+        }
+
+        return hostCamera;
     }
 
     private static void RestrictHostCamera()
     {
-        Camera hostCamera = Camera.main;
-        if (hostCamera == null || hostCamera.targetTexture != null)
-        {
-            Camera[] cameras = FindObjectsOfType<Camera>();
-            for (int i = 0; i < cameras.Length; i++)
-            {
-                if (cameras[i].CompareTag("MainCamera") && cameras[i].targetTexture == null)
-                {
-                    hostCamera = cameras[i];
-                    break;
-                }
-            }
-        }
-
+        Camera hostCamera = FindHostCamera();
         int cameraModelLayer = LayerMask.NameToLayer("CameraModel");
         if (hostCamera != null && cameraModelLayer >= 0)
         {
             hostCamera.cullingMask = 1 << cameraModelLayer;
         }
+    }
+
+    private static void FrameHostCameraToBody()
+    {
+        Camera hostCamera = FindHostCamera();
+        Transform bodyRoot = FindCameraBodyRoot();
+        if (hostCamera == null || bodyRoot == null)
+        {
+            return;
+        }
+
+        Renderer bodyRenderer = null;
+        Renderer[] renderers = bodyRoot.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i].name == "UMesh_PolySphere2_6")
+            {
+                bodyRenderer = renderers[i];
+                break;
+            }
+        }
+
+        if (bodyRenderer == null && renderers.Length > 0)
+        {
+            bodyRenderer = renderers[0];
+        }
+
+        if (bodyRenderer == null)
+        {
+            return;
+        }
+
+        Bounds bounds = bodyRenderer.bounds;
+
+        hostCamera.orthographic = true;
+        hostCamera.transform.position = new Vector3(bounds.center.x, bounds.center.y, bounds.min.z - 4f);
+        hostCamera.transform.rotation = Quaternion.identity;
+
+        float padding = 1.06f;
+        float sizeForHeight = bounds.extents.y * padding;
+        float sizeForWidth = (bounds.extents.x * padding) / Mathf.Max(0.01f, hostCamera.aspect);
+        hostCamera.orthographicSize = Mathf.Max(sizeForHeight, sizeForWidth);
     }
 
     private static void AssignCameraModelLayer(Transform root)
@@ -345,6 +391,7 @@ public sealed class CameraDisplayHost : MonoBehaviour
         {
             shader = Shader.Find("Universal Render Pipeline/Unlit");
         }
+
         if (shader == null)
         {
             shader = Shader.Find("Unlit/Texture");
@@ -379,15 +426,17 @@ public sealed class CameraDisplayHost : MonoBehaviour
             return;
         }
 
+        Vector2 scale = new Vector2(-1f, 1f);
+        Vector2 offset = new Vector2(1f, 0f);
         displayMaterial.SetTexture("_BaseMap", displayTexture);
         displayMaterial.SetTexture("_MainTex", displayTexture);
-        displayMaterial.SetTextureScale("_BaseMap", Vector2.one);
-        displayMaterial.SetTextureOffset("_BaseMap", Vector2.zero);
-        displayMaterial.SetTextureScale("_MainTex", Vector2.one);
-        displayMaterial.SetTextureOffset("_MainTex", Vector2.zero);
+        displayMaterial.SetTextureScale("_BaseMap", scale);
+        displayMaterial.SetTextureOffset("_BaseMap", offset);
+        displayMaterial.SetTextureScale("_MainTex", scale);
+        displayMaterial.SetTextureOffset("_MainTex", offset);
         displayMaterial.mainTexture = displayTexture;
-        displayMaterial.mainTextureScale = Vector2.one;
-        displayMaterial.mainTextureOffset = Vector2.zero;
+        displayMaterial.mainTextureScale = scale;
+        displayMaterial.mainTextureOffset = offset;
     }
 
     private void ReleaseRenderTarget()

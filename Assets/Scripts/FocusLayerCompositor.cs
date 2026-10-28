@@ -368,25 +368,17 @@ public sealed class FocusLayerCompositor : MonoBehaviour
 
     private void ApplyMainCulling()
     {
-        // Off-screen LCD cameras must keep the 2D world on their own culling mask.
-        // Overlay cameras used for blur can fail to render when the host camera
-        // already targets a RenderTexture; the hosted view should still show the level.
-        if (mainCamera.targetTexture != null)
+        // World layers and the player are composited in depth order (Far behind the
+        // player, Near in front). Keep only non-focus objects on the main camera,
+        // including when this camera renders into the camera-frame LCD.
+        int mask = originalCullingMask & ~FocusUnityLayers.GetCullingMask();
+        int cameraModelLayer = LayerMask.NameToLayer("CameraModel");
+        if (cameraModelLayer >= 0)
         {
-            int mask = originalCullingMask;
-            int cameraModelLayer = LayerMask.NameToLayer("CameraModel");
-            if (cameraModelLayer >= 0)
-            {
-                mask &= ~(1 << cameraModelLayer);
-            }
-
-            mainCamera.cullingMask = mask;
-            return;
+            mask &= ~(1 << cameraModelLayer);
         }
 
-        // World layers and the player are composited in depth order (Far behind the
-        // player, Near in front). Keep only non-focus objects on the main camera.
-        mainCamera.cullingMask = originalCullingMask & ~FocusUnityLayers.GetCullingMask();
+        mainCamera.cullingMask = mask;
     }
 
     private void EnsureResources()
@@ -486,13 +478,13 @@ public sealed class FocusLayerCompositor : MonoBehaviour
                 layerTextures[layerIndex],
                 1 << unityLayer,
                 -100 + layerIndex,
-                mainCamera.targetTexture == null);
+                true);
         }
 
         int overlayPlayerLayer = LayerMask.NameToLayer(FocusUnityLayers.Player);
         if (playerCamera != null && playerTexture != null && overlayPlayerLayer >= 0)
         {
-            ConfigureOverlayCamera(playerCamera, ref playerCameraData, playerTexture, 1 << overlayPlayerLayer, -97, mainCamera.targetTexture == null);
+            ConfigureOverlayCamera(playerCamera, ref playerCameraData, playerTexture, 1 << overlayPlayerLayer, -97, true);
         }
     }
 
