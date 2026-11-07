@@ -11,11 +11,11 @@ Shader "Hidden/CameraLCD"
         Tags
         {
             "RenderPipeline" = "UniversalPipeline"
-            "Queue" = "Overlay"
+            "Queue" = "Geometry+10"
             "RenderType" = "Opaque"
         }
-        ZTest Always
-        ZWrite Off
+        ZTest LEqual
+        ZWrite On
         Cull Off
 
         Pass
@@ -55,6 +55,12 @@ Shader "Hidden/CameraLCD"
 
             half4 Frag(Varyings input) : SV_Target
             {
+                const float edge = 0.07;
+                if (input.uv.x < edge || input.uv.x > 1.0 - edge || input.uv.y < edge || input.uv.y > 1.0 - edge)
+                {
+                    clip(-1);
+                }
+
                 half4 color = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv) * _BaseColor;
                 return half4(color.rgb, 1);
             }
