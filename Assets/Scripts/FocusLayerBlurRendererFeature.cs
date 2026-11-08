@@ -14,6 +14,7 @@ public sealed class FocusLayerBlurRendererFeature : ScriptableRendererFeature
     private Material material;
     private Material[] blurMaterials;
     private FocusLayerCompositePass pass;
+    private CameraFrameOverlayPass framePass;
 
     public override void Create()
     {
@@ -44,6 +45,7 @@ public sealed class FocusLayerBlurRendererFeature : ScriptableRendererFeature
         }
 
         pass = new FocusLayerCompositePass(material, blurMaterials);
+        framePass = new CameraFrameOverlayPass();
     }
 
     public override void SetupRenderPasses(ScriptableRenderer renderer, in RenderingData renderingData)
@@ -58,6 +60,11 @@ public sealed class FocusLayerBlurRendererFeature : ScriptableRendererFeature
         if (compositor != null && pass != null)
         {
             pass.Setup(renderer.cameraColorTargetHandle, compositor);
+        }
+
+        if (compositor != null && framePass != null)
+        {
+            framePass.Setup(renderer.cameraColorTargetHandle);
         }
     }
 
@@ -80,6 +87,11 @@ public sealed class FocusLayerBlurRendererFeature : ScriptableRendererFeature
         if (pass != null)
         {
             pass.DisposeHandles();
+        }
+
+        if (framePass != null)
+        {
+            framePass.DisposeHandles();
         }
 
         if (material != null)
@@ -262,6 +274,93 @@ public sealed class FocusLayerBlurRendererFeature : ScriptableRendererFeature
         {
             CoreUtils.SetRenderTarget(command, destination, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store, ClearFlag.None, Color.clear);
             Blitter.BlitTexture(command, source, new Vector4(1f, 1f, 0f, 0f), blitMaterial, pass);
+        }
+    }
+
+    private sealed class CameraFrameOverlayPass : ScriptableRenderPass
+    {
+        private RTHandle cameraColor;
+        private RTHandle gameCopy;
+
+        public CameraFrameOverlayPass()
+        {
+            renderPassEvent = RenderPassEvent.AfterRenderingPostProcessing;
+            ConfigureInput(ScriptableRenderPassInput.Color);
+        }
+
+        public void Setup(RTHandle color)
+        {
+            cameraColor = color;
+        }
+
+        public void DisposeHandles()
+        {
+            gameCopy?.Release();
+            gameCopy = null;
+        }
+
+        public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
+        {
+            RenderTextureDescriptor descriptor = renderingData.cameraData.cameraTargetDescriptor;
+            descriptor.depthBufferBits = 0;
+            descriptor.msaaSamples = 1;
+            descriptor.graphicsFormat = GraphicsFormat.R8G8B8A8_UNorm;
+            RenderingUtils.ReAllocateIfNeeded(ref gameCopy, descriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: "_CameraFrameGameCopy");
+        }
+
+        public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
+        {
+            CameraDisplayHost.EmbeddedFrame frame = CameraDisplayHost.ActiveEmbeddedFrame;
+            if (frame == null || frame.screen == null || frame.screenMaterial == null || gameCopy == null)
+            {
+                return;
+            }
+
+            if (cameraColor == null)
+            {
+                cameraColor = renderingData.cameraData.renderer.cameraColorTargetHandle;
+            }
+
+            if (cameraColor == null)
+            {
+                return;
+            }
+
+            CommandBuffer command = CommandBufferPool.Get("Camera Frame Overlay");
+            Blitter.BlitCameraTexture(command, cameraColor, gameCopy);
+            frame.screenMaterial.SetTexture("_FrameGameTex", gameCopy.rt);
+            RTHandle depth = renderingData.cameraData.renderer.cameraDepthTargetHandle;
+            if (depth != null)
+            {
+                CoreUtils.SetRenderTarget(command, cameraColor, depth, ClearFlag.None, Color.clear);
+            }
+            else
+            {
+                CoreUtils.SetRenderTarget(command, cameraColor, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store, ClearFlag.None, Color.clear);
+            }
+
+            if (frame.parts != null)
+            {
+                for (int i = 0; i < frame.parts.Length; i++)
+                {
+                    Renderer part = frame.parts[i];
+                    Material partMaterial = frame.partMaterials != null && i < frame.partMaterials.Length ? frame.partMaterials[i] : null;
+                    if (part == null || partMaterial == null || !part.enabled || !part.gameObject.activeInHierarchy)
+                    {
+                        continue;
+                    }
+
+                    command.DrawRenderer(part, partMaterial);
+                }
+            }
+
+            if (frame.screen.enabled && frame.screen.gameObject.activeInHierarchy)
+            {
+                command.DrawRenderer(frame.screen, frame.screenMaterial);
+            }
+
+            context.ExecuteCommandBuffer(command);
+            CommandBufferPool.Release(command);
         }
     }
 }

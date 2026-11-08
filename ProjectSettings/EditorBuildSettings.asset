@@ -44,5 +44,40 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/New Scene.unity
     guid: c1f2a72636acdb14e9de0a09540cb2dd
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel1.unity
+    guid: 24da7c5b57f41004e8c6add6210a3ec9
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel2.unity
+    guid: 486c037485ca9ba4a82698c20e285838
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel3.unity
+    guid: da554fc97f2299e4ea8d8e8f2812e447
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel4.unity
+    guid: 329d0e65165ba79499c7835e22b9b0ba
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel5.unity
+    guid: 6dbc10d778ca5e349ae22b8746084c5b
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel6.unity
+    guid: c0400bec31adcba45bdf5d413d08fd8e
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel7.unity
+    guid: 2fdbbd3ad75d1b448bea6b9264628907
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel8.unity
+    guid: 1bc67c41120c717498f85c49bb2a385d
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel9.unity
+    guid: 9f518cea8fa2e33459392a2b3613d9c8
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel10.unity
+    guid: 1754bc304826ce44d912fbbc21f6825c
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel11.unity
+    guid: 8fcf36de225c0654090dd9548057578a
+  - enabled: 1
+    path: Assets/Scenes/Color/ColorLevel12.unity
+    guid: 329cd802342d2f443b1003718b5e2338
   m_configObjects: {}
-  m_UseUCBPForAssetBundles: 0

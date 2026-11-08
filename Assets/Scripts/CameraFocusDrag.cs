@@ -1,139 +1,104 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 
-public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
+public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHandler, IPointerDownHandler
 {
     private RectTransform handle;
-    private Vector2 sceneAnchoredPosition;
-    private Vector2 dragOriginAnchoredPosition;
-    private float dragOriginPointerX;
-    private bool dragging;
+    private float handleWidthRatio = 0.03f;
+    private float handleHeightRatio = 0.38f;
+    private bool applying;
 
-    private bool savedScenePosition;
-
-    private void OnEnable()
+    public void Configure(RectTransform handleRect, float widthRatio, float heightRatio)
     {
-        EnsureHandle();
-    }
-
-    public void Configure(RectTransform handleRect)
-    {
-        if (handleRect == null)
-        {
-            return;
-        }
-
         handle = handleRect;
-        SaveScenePosition();
+        handleWidthRatio = Mathf.Max(0.01f, widthRatio);
+        handleHeightRatio = Mathf.Max(0.01f, heightRatio);
+        FocusLevelState levelState = FindObjectOfType<FocusLevelState>();
+        if (levelState != null)
+        {
+            ApplyLayer(levelState.CurrentLayer);
+            levelState.StateChanged += OnStateChanged;
+        }
     }
 
-    private void EnsureHandle()
+    private void OnDestroy()
     {
-        if (handle == null)
+        FocusLevelState levelState = FindObjectOfType<FocusLevelState>();
+        if (levelState != null)
         {
-            Transform child = transform.Find("FocusHandle");
-            if (child != null)
-            {
-                handle = child.GetComponent<RectTransform>();
-            }
+            levelState.StateChanged -= OnStateChanged;
         }
-
-        SaveScenePosition();
     }
 
-    private void SaveScenePosition()
+    public void OnPointerDown(PointerEventData eventData)
     {
-        if (savedScenePosition || handle == null)
-        {
-            return;
-        }
-
-        sceneAnchoredPosition = handle.anchoredPosition;
-        savedScenePosition = true;
+        ApplyPointer(eventData);
     }
 
     public void OnBeginDrag(PointerEventData eventData)
     {
-        EnsureHandle();
-        if (handle == null || !TryGetTrackLocalX(eventData, out dragOriginPointerX))
-        {
-            return;
-        }
-
-        dragOriginAnchoredPosition = handle.anchoredPosition;
-        dragging = true;
+        ApplyPointer(eventData);
     }
 
     public void OnDrag(PointerEventData eventData)
     {
-        EnsureHandle();
-        if (!dragging || handle == null || !TryGetTrackLocalX(eventData, out float pointerX))
+        ApplyPointer(eventData);
+    }
+
+    private void OnStateChanged()
+    {
+        if (applying)
         {
             return;
         }
 
-        Vector2 next = dragOriginAnchoredPosition;
-        next.x += pointerX - dragOriginPointerX;
-        next.x = ClampAnchoredX(next.x);
-        handle.anchoredPosition = next;
-        UpdateFocus();
+        FocusLevelState levelState = FindObjectOfType<FocusLevelState>();
+        if (levelState != null)
+        {
+            ApplyLayer(levelState.CurrentLayer);
+        }
     }
 
-    public void OnEndDrag(PointerEventData eventData)
+    private void ApplyPointer(PointerEventData eventData)
     {
-        dragging = false;
+        RectTransform rect = (RectTransform)transform;
+        Camera eventCamera = eventData.pressEventCamera != null ? eventData.pressEventCamera : eventData.enterEventCamera;
+        Vector2 localPoint;
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, eventData.position, eventCamera, out localPoint))
+        {
+            return;
+        }
+
+        float normalized = Mathf.InverseLerp(rect.rect.xMin, rect.rect.xMax, localPoint.x);
+        ApplyNormalized(Mathf.Clamp01(normalized), true);
     }
 
-    private bool TryGetTrackLocalX(PointerEventData eventData, out float localX)
+    public void ApplyNormalized(float normalized, bool updateFocus)
     {
-        localX = 0f;
-        RectTransform track = (RectTransform)transform;
-        Canvas canvas = track.GetComponentInParent<Canvas>();
-        Camera eventCamera = null;
-        if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+        normalized = Mathf.Clamp01(normalized);
+        if (handle != null)
         {
-            eventCamera = canvas.worldCamera != null ? canvas.worldCamera : eventData.pressEventCamera;
+            float halfWidth = handleWidthRatio * 0.5f;
+            float halfHeight = handleHeightRatio * 0.5f;
+            float position = Mathf.Lerp(halfWidth, 1f - halfWidth, normalized);
+            handle.anchorMin = new Vector2(position - halfWidth, 0.5f - halfHeight);
+            handle.anchorMax = new Vector2(position + halfWidth, 0.5f + halfHeight);
+            handle.sizeDelta = Vector2.zero;
+            handle.anchoredPosition = Vector2.zero;
         }
 
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(track, eventData.position, eventCamera, out Vector2 localPoint))
+        if (!updateFocus)
         {
-            return false;
+            return;
         }
 
-        localX = localPoint.x;
-        return true;
-    }
-
-    private float ClampAnchoredX(float anchoredX)
-    {
-        RectTransform track = (RectTransform)transform;
-        float currentX = handle.anchoredPosition.x;
-        float pivotX = track.InverseTransformPoint(handle.position).x + (anchoredX - currentX);
-        float minPivotX = track.rect.xMin - handle.rect.xMin;
-        float maxPivotX = track.rect.xMax - handle.rect.xMax;
-        if (maxPivotX < minPivotX)
-        {
-            pivotX = (track.rect.xMin + track.rect.xMax) * 0.5f - (handle.rect.xMin + handle.rect.xMax) * 0.5f;
-        }
-        else
-        {
-            pivotX = Mathf.Clamp(pivotX, minPivotX, maxPivotX);
-        }
-
-        return currentX + (pivotX - track.InverseTransformPoint(handle.position).x);
-    }
-
-    private void UpdateFocus()
-    {
-        RectTransform track = (RectTransform)transform;
-        float centerX = track.InverseTransformPoint(handle.position).x + (handle.rect.xMin + handle.rect.xMax) * 0.5f;
-        float normalized = Mathf.InverseLerp(track.rect.xMin, track.rect.xMax, centerX);
         FocusLevelState levelState = FindObjectOfType<FocusLevelState>();
         if (levelState == null)
         {
             return;
         }
 
+        applying = true;
         if (normalized < 0.34f)
         {
             levelState.SetLayer(FocusLayer.Near);
@@ -146,5 +111,22 @@ public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHan
         {
             levelState.SetLayer(FocusLayer.Far);
         }
+
+        applying = false;
+    }
+
+    private void ApplyLayer(FocusLayer layer)
+    {
+        float normalized = 0.5f;
+        if (layer == FocusLayer.Near)
+        {
+            normalized = 0.16f;
+        }
+        else if (layer == FocusLayer.Far)
+        {
+            normalized = 0.84f;
+        }
+
+        ApplyNormalized(normalized, false);
     }
 }

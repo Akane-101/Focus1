@@ -369,8 +369,8 @@ public sealed class FocusLayerCompositor : MonoBehaviour
     private void ApplyMainCulling()
     {
         // World layers and the player are composited in depth order (Far behind the
-        // player, Near in front). Keep only non-focus objects on the main camera,
-        // including when this camera renders into the camera-frame LCD.
+        // player, Near in front). Keep only non-focus objects on the level camera.
+        // The camera body is CameraModel and is drawn only by the frame camera.
         int mask = originalCullingMask & ~FocusUnityLayers.GetCullingMask();
         int cameraModelLayer = LayerMask.NameToLayer("CameraModel");
         if (cameraModelLayer >= 0)

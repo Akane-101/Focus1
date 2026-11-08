@@ -6,6 +6,8 @@ public sealed class CameraHudLayout : MonoBehaviour
     [SerializeField] private RectTransform hudFrame;
     [SerializeField] private RectTransform handle;
     [SerializeField] private CameraFocusDrag focusDrag;
+    [SerializeField] private float handleSpriteWidth = 25f;
+    [SerializeField] private float handleSpriteHeight = 50f;
 
     private bool configured;
 
@@ -26,8 +28,47 @@ public sealed class CameraHudLayout : MonoBehaviour
 
         if (!configured && focusDrag != null && handle != null)
         {
-            focusDrag.Configure(handle);
+            focusDrag.Configure(handle, handleSpriteWidth / 825f, handleSpriteHeight / 133f);
             configured = true;
         }
+
+        GameObject display = GameObject.Find("CameraLCD");
+        Renderer displayRenderer = display != null ? display.GetComponent<Renderer>() : null;
+        GameObject frameObject = GameObject.Find("CameraFrameCamera");
+        Camera frameCamera = frameObject != null ? frameObject.GetComponent<Camera>() : null;
+        if (frameCamera != null && displayRenderer != null)
+        {
+            FitToOpening(frameCamera, displayRenderer.bounds);
+        }
+    }
+
+    private void FitToOpening(Camera frameCamera, Bounds bounds)
+    {
+        Vector3 bottomLeft = frameCamera.WorldToScreenPoint(new Vector3(bounds.min.x, bounds.min.y, bounds.center.z));
+        Vector3 topRight = frameCamera.WorldToScreenPoint(new Vector3(bounds.max.x, bounds.max.y, bounds.center.z));
+        ApplyScreenRect(bottomLeft.x, bottomLeft.y, topRight.x, topRight.y);
+    }
+
+    private void ApplyScreenRect(float xMin, float yMin, float xMax, float yMax)
+    {
+        RectTransform canvasRect = hudFrame.parent as RectTransform;
+        if (canvasRect == null)
+        {
+            return;
+        }
+
+        Vector2 localMin;
+        Vector2 localMax;
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, new Vector2(xMin, yMin), null, out localMin) ||
+            !RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, new Vector2(xMax, yMax), null, out localMax))
+        {
+            return;
+        }
+
+        hudFrame.anchorMin = new Vector2(0.5f, 0.5f);
+        hudFrame.anchorMax = new Vector2(0.5f, 0.5f);
+        hudFrame.pivot = Vector2.zero;
+        hudFrame.anchoredPosition = localMin;
+        hudFrame.sizeDelta = localMax - localMin;
     }
 }

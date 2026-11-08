@@ -1,10 +1,9 @@
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.EventSystems;
-using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
+[DefaultExecutionOrder(50)]
 public sealed class CameraDisplayHost : MonoBehaviour
 {
     public const int LevelCount = 12;
@@ -12,8 +11,8 @@ public sealed class CameraDisplayHost : MonoBehaviour
     private static readonly Vector3 LevelWorldOffset = new Vector3(0f, -80f, 0f);
     private static readonly string[] LevelNames =
     {
-        "Level1", "Level2", "Level3", "Level4", "Level5", "Level6",
-        "Level7", "Level8", "Level9", "Level10", "Level11", "Level12"
+        "ColorLevel1", "ColorLevel2", "ColorLevel3", "ColorLevel4", "ColorLevel5", "ColorLevel6",
+        "ColorLevel7", "ColorLevel8", "ColorLevel9", "ColorLevel10", "ColorLevel11", "ColorLevel12"
     };
 
     public static CameraDisplayHost Instance { get; private set; }
@@ -23,23 +22,43 @@ public sealed class CameraDisplayHost : MonoBehaviour
         get { return Instance != null && Instance.isActiveAndEnabled; }
     }
 
+    public sealed class EmbeddedFrame
+    {
+        public Renderer screen;
+        public Material screenMaterial;
+        public Renderer[] parts;
+        public Material[] partMaterials;
+    }
+
+    public static EmbeddedFrame ActiveEmbeddedFrame { get; private set; }
+
+    public const string EmbeddedLevelPrefix = "CameraFrameLevel";
+
     [SerializeField] private int displayWidth = 1280;
     [SerializeField] private int displayHeight = 720;
+    [SerializeField] private bool embeddedLevel;
+    [SerializeField] private int embeddedLevelIndex;
+    [SerializeField] private Sprite viewfinderSprite;
+    [SerializeField] private Sprite viewfinderFrame;
+    [SerializeField] private Sprite focusTrack;
+    [SerializeField] private Sprite focusHandle;
 
     private RenderTexture displayTexture;
     private Material displayMaterial;
     private GameObject displayQuad;
+    private float displayAspect = 16f / 9f;
     private int currentLevelIndex;
+    private Transform embeddedBody;
+    private Renderer embeddedScreen;
+    private Vector3 unitRootToScreen;
+    private Vector3 unitRootToBodyCenter;
+    private Vector3 unitBodySize;
+    private Vector3 unitBodyMinFromScreen;
+    private bool embeddedMetricsReady;
+    private Material[] embeddedPartMaterials;
+    private Material embeddedScreenMaterial;
     private Scene loadedLevel;
     private bool loading;
-    private Camera levelCamera;
-    private Camera hudCamera;
-    private Canvas levelHud;
-    private CameraFocusDrag pointerDrag;
-    private bool pointerDragging;
-    private readonly List<RaycastResult> pointerHits = new List<RaycastResult>();
-    private readonly Vector2 textureScale = new Vector2(-1f, 1f);
-    private readonly Vector2 textureOffset = new Vector2(1f, 0f);
 
     public int CurrentLevelNumber
     {
@@ -48,7 +67,7 @@ public sealed class CameraDisplayHost : MonoBehaviour
 
     public static bool TryHandleLevelClear()
     {
-        if (!IsHosting)
+        if (!IsHosting || Instance.embeddedLevel)
         {
             return false;
         }
@@ -63,11 +82,25 @@ public sealed class CameraDisplayHost : MonoBehaviour
         CreateDisplaySurface();
         CreateRenderTarget();
         RestrictHostCamera();
-        FrameHostCameraToBody();
+        if (embeddedLevel)
+        {
+            BindLevelCameraToDisplay();
+        }
+        else
+        {
+            FrameHostCameraToBody();
+        }
     }
 
     private void Start()
     {
+        if (embeddedLevel)
+        {
+            currentLevelIndex = Mathf.Clamp(embeddedLevelIndex, 0, LevelCount - 1);
+            StartCoroutine(BindEmbeddedLevelRoutine());
+            return;
+        }
+
         StartCoroutine(LoadLevelRoutine(0, false));
     }
 
@@ -76,8 +109,10 @@ public sealed class CameraDisplayHost : MonoBehaviour
         if (Instance == this)
         {
             Instance = null;
+            ActiveEmbeddedFrame = null;
         }
 
+        ReleaseEmbeddedFrameMaterials();
         ReleaseRenderTarget();
     }
 
@@ -87,8 +122,6 @@ public sealed class CameraDisplayHost : MonoBehaviour
         {
             return;
         }
-
-        RouteScreenPointer();
 
         if (Input.GetKeyDown(KeyCode.RightBracket) || Input.GetKeyDown(KeyCode.Period) || Input.GetKeyDown(KeyCode.PageDown))
         {
@@ -117,9 +150,6 @@ public sealed class CameraDisplayHost : MonoBehaviour
             return;
         }
 
-<<<<<<< Updated upstream
-        StartCoroutine(LoadLevelRoutine(Mathf.Clamp(index, 0, LevelCount - 1), true));
-=======
         index = Mathf.Clamp(index, 0, LevelCount - 1);
         if (embeddedLevel)
         {
@@ -160,18 +190,11 @@ public sealed class CameraDisplayHost : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (loading)
-        {
-            return;
-        }
-
-        if (embeddedLevel)
+        if (embeddedLevel && !loading)
         {
             BindLevelCameraToDisplay();
-            return;
+            FitHudToOpening();
         }
-
-        SyncHudCamera();
     }
 
     private void BindLevelCameraToDisplay()
@@ -487,6 +510,8 @@ public sealed class CameraDisplayHost : MonoBehaviour
         }
     }
 
+    private RectTransform hudFrame;
+
     private void EnsureViewfinder()
     {
         if (viewfinderFrame == null || focusTrack == null || focusHandle == null)
@@ -523,18 +548,18 @@ public sealed class CameraDisplayHost : MonoBehaviour
         GameObject frameObject = new GameObject("HudFrame", typeof(RectTransform));
         frameObject.layer = uiLayer;
         frameObject.transform.SetParent(canvasObject.transform, false);
-        RectTransform createdFrame = frameObject.GetComponent<RectTransform>();
-        createdFrame.anchorMin = new Vector2(0.5f, 0.5f);
-        createdFrame.anchorMax = new Vector2(0.5f, 0.5f);
-        createdFrame.pivot = new Vector2(0f, 0f);
+        hudFrame = frameObject.GetComponent<RectTransform>();
+        hudFrame.anchorMin = new Vector2(0.5f, 0.5f);
+        hudFrame.anchorMax = new Vector2(0.5f, 0.5f);
+        hudFrame.pivot = new Vector2(0f, 0f);
 
-        CreateHudImage("Viewfinder", viewfinderFrame, createdFrame, new Vector2(0f, 0f), new Vector2(1f, 1f), false);
+        CreateHudImage("Viewfinder", viewfinderFrame, hudFrame, new Vector2(0f, 0f), new Vector2(1f, 1f), false);
 
-        GameObject trackObject = CreateHudImage("FocusTrack", focusTrack, createdFrame, new Vector2(0.259f, 0.110f), new Vector2(0.753f, 0.252f), true);
+        GameObject trackObject = CreateHudImage("FocusTrack", focusTrack, hudFrame, new Vector2(0.259f, 0.110f), new Vector2(0.753f, 0.252f), true);
         GameObject handleObject = CreateHudImage("FocusHandle", focusHandle, trackObject.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), false);
         RectTransform handleRect = handleObject.GetComponent<RectTransform>();
         handleRect.pivot = new Vector2(0.5f, 0.5f);
-        trackObject.GetComponent<CameraFocusDrag>().Configure(handleRect);
+        trackObject.GetComponent<CameraFocusDrag>().Configure(handleRect, focusHandle.rect.width / focusTrack.rect.width, focusHandle.rect.height / focusTrack.rect.height);
     }
 
     private static GameObject CreateHudImage(string name, Sprite sprite, Transform parent, Vector2 anchorMin, Vector2 anchorMax, bool receivesDrag)
@@ -557,6 +582,52 @@ public sealed class CameraDisplayHost : MonoBehaviour
         image.raycastTarget = receivesDrag;
         image.color = Color.white;
         return imageObject;
+    }
+
+    private void FitHudToOpening()
+    {
+        if (hudFrame == null)
+        {
+            GameObject existing = GameObject.Find("HudFrame");
+            if (existing != null)
+            {
+                hudFrame = existing.GetComponent<RectTransform>();
+            }
+        }
+
+        if (hudFrame == null || displayQuad == null)
+        {
+            return;
+        }
+
+        Camera frameCamera = FindHostCamera();
+        if (frameCamera == null)
+        {
+            return;
+        }
+
+        Bounds bounds = displayQuad.GetComponent<Renderer>().bounds;
+        Vector3 bottomLeft = frameCamera.WorldToScreenPoint(new Vector3(bounds.min.x, bounds.min.y, bounds.center.z));
+        Vector3 topRight = frameCamera.WorldToScreenPoint(new Vector3(bounds.max.x, bounds.max.y, bounds.center.z));
+        RectTransform canvasRect = hudFrame.parent as RectTransform;
+        Vector2 localMin;
+        Vector2 localMax;
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, bottomLeft, null, out localMin) ||
+            !RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, topRight, null, out localMax))
+        {
+            return;
+        }
+
+        hudFrame.anchoredPosition = localMin;
+        hudFrame.sizeDelta = localMax - localMin;
+
+        RectTransform handle = hudFrame.Find("FocusTrack/FocusHandle") as RectTransform;
+        if (handle != null)
+        {
+            float widthScale = hudFrame.rect.width / 1671f;
+            float heightScale = hudFrame.rect.height / 941f;
+            handle.sizeDelta = new Vector2(focusHandle.rect.width * widthScale, focusHandle.rect.height * heightScale);
+        }
     }
 
     private void OffsetEmbeddedLevelRoots()
@@ -591,7 +662,6 @@ public sealed class CameraDisplayHost : MonoBehaviour
             || name == "CameraFrameLight"
             || name == "CameraDisplayHost"
             || name == "Global Volume";
->>>>>>> Stashed changes
     }
 
     private IEnumerator LoadLevelRoutine(int index, bool unloadCurrent)
@@ -642,11 +712,6 @@ public sealed class CameraDisplayHost : MonoBehaviour
         GameObject[] roots = loadedLevel.GetRootGameObjects();
         for (int i = 0; i < roots.Length; i++)
         {
-            if (roots[i].name == "CameraFrameHud")
-            {
-                continue;
-            }
-
             roots[i].transform.position += LevelWorldOffset;
             AudioListener[] listeners = roots[i].GetComponentsInChildren<AudioListener>(true);
             for (int j = 0; j < listeners.Length; j++)
@@ -665,7 +730,6 @@ public sealed class CameraDisplayHost : MonoBehaviour
             return;
         }
 
-        this.levelCamera = levelCamera;
         levelCamera.tag = "Untagged";
         levelCamera.targetTexture = displayTexture;
         levelCamera.depth = -50;
@@ -678,281 +742,27 @@ public sealed class CameraDisplayHost : MonoBehaviour
             listeners[i].enabled = keep;
         }
 
+        if (embeddedLevel)
+        {
+            Camera hostCamera = FindHostCamera();
+            if (hostCamera != null)
+            {
+                AudioListener hostListener = hostCamera.GetComponent<AudioListener>();
+                if (hostListener != null)
+                {
+                    hostListener.enabled = true;
+                }
+            }
+        }
+
         int cameraModelLayer = LayerMask.NameToLayer("CameraModel");
         if (cameraModelLayer >= 0)
         {
             levelCamera.cullingMask &= ~(1 << cameraModelLayer);
         }
 
-        int uiLayer = LayerMask.NameToLayer("UI");
-        if (uiLayer >= 0)
-        {
-            levelCamera.cullingMask &= ~(1 << uiLayer);
-        }
-
         ApplyDisplayTexture();
-        ComposeLevelHud();
         HideHostedOverlayUi();
-    }
-
-    private void ComposeLevelHud()
-    {
-        if (levelCamera == null || displayTexture == null)
-        {
-            return;
-        }
-
-        EnsureHudCamera();
-        levelHud = FindLevelHudCanvas();
-        if (levelHud == null)
-        {
-            Debug.LogError("Camera display could not find CameraFrameHud in " + loadedLevel.name);
-            return;
-        }
-
-        levelHud.renderMode = RenderMode.WorldSpace;
-        levelHud.worldCamera = hudCamera;
-        levelHud.overrideSorting = true;
-        levelHud.sortingOrder = 50;
-        CanvasScaler scaler = levelHud.GetComponent<CanvasScaler>();
-        if (scaler != null)
-        {
-            scaler.enabled = false;
-        }
-
-        RectTransform root = levelHud.GetComponent<RectTransform>();
-        root.sizeDelta = new Vector2(displayTexture.width, displayTexture.height);
-        SyncHudCamera();
-    }
-
-    private Canvas FindLevelHudCanvas()
-    {
-        if (!loadedLevel.IsValid() || !loadedLevel.isLoaded)
-        {
-            return null;
-        }
-
-        GameObject[] roots = loadedLevel.GetRootGameObjects();
-        for (int i = 0; i < roots.Length; i++)
-        {
-            if (roots[i].name == "CameraFrameHud")
-            {
-                return roots[i].GetComponent<Canvas>();
-            }
-        }
-
-        return null;
-    }
-
-    private void EnsureHudCamera()
-    {
-        if (hudCamera != null)
-        {
-            return;
-        }
-
-        GameObject cameraObject = new GameObject("CameraFrameHudCamera");
-        cameraObject.transform.SetParent(transform, false);
-        hudCamera = cameraObject.AddComponent<Camera>();
-        hudCamera.enabled = true;
-        hudCamera.clearFlags = CameraClearFlags.Depth;
-        int uiLayer = LayerMask.NameToLayer("UI");
-        hudCamera.cullingMask = uiLayer >= 0 ? 1 << uiLayer : 0;
-        hudCamera.allowMSAA = false;
-        hudCamera.allowHDR = false;
-        hudCamera.useOcclusionCulling = false;
-        UniversalAdditionalCameraData cameraData = hudCamera.GetUniversalAdditionalCameraData();
-        cameraData.renderType = CameraRenderType.Overlay;
-        cameraData.renderPostProcessing = false;
-        cameraData.renderShadows = false;
-        cameraData.SetRenderer(0);
-    }
-
-    private void SyncHudCamera()
-    {
-        if (hudCamera == null || levelCamera == null || displayTexture == null)
-        {
-            return;
-        }
-
-        hudCamera.orthographic = levelCamera.orthographic;
-        hudCamera.orthographicSize = levelCamera.orthographicSize;
-        hudCamera.fieldOfView = levelCamera.fieldOfView;
-        hudCamera.nearClipPlane = levelCamera.nearClipPlane;
-        hudCamera.farClipPlane = levelCamera.farClipPlane;
-        hudCamera.rect = levelCamera.rect;
-        hudCamera.aspect = levelCamera.aspect;
-        hudCamera.targetTexture = null;
-        hudCamera.clearFlags = CameraClearFlags.Depth;
-        hudCamera.depth = levelCamera.depth + 10f;
-        hudCamera.transform.SetPositionAndRotation(levelCamera.transform.position, levelCamera.transform.rotation);
-
-        UniversalAdditionalCameraData levelData = levelCamera.GetUniversalAdditionalCameraData();
-        if (!levelData.cameraStack.Contains(hudCamera))
-        {
-            levelData.cameraStack.Add(hudCamera);
-        }
-
-        if (levelHud == null)
-        {
-            return;
-        }
-
-        levelHud.overrideSorting = true;
-        levelHud.sortingOrder = 50;
-        RectTransform root = levelHud.GetComponent<RectTransform>();
-        float viewHeight = levelCamera.orthographic
-            ? levelCamera.orthographicSize * 2f
-            : 2f * 10f * Mathf.Tan(levelCamera.fieldOfView * 0.5f * Mathf.Deg2Rad);
-        float scale = viewHeight / Mathf.Max(1f, displayTexture.height);
-        root.localScale = new Vector3(scale, scale, scale);
-        float distance = Mathf.Clamp(10f, levelCamera.nearClipPlane + 0.05f, levelCamera.farClipPlane - 0.05f);
-        root.SetPositionAndRotation(levelCamera.transform.position + levelCamera.transform.forward * distance, levelCamera.transform.rotation);
-    }
-
-    private void RouteScreenPointer()
-    {
-        if (levelHud == null || hudCamera == null || displayQuad == null || displayTexture == null)
-        {
-            return;
-        }
-
-        if (!TryReadPointer(out Vector2 hostPosition, out bool began, out bool held, out bool ended))
-        {
-            return;
-        }
-
-        bool mapped = TryMapHostToHudScreen(hostPosition, out Vector2 hudPosition);
-        if (began && mapped)
-        {
-            CameraFocusDrag drag = RaycastDrag(hudPosition);
-            if (drag != null)
-            {
-                pointerDrag = drag;
-                pointerDragging = true;
-                pointerDrag.OnBeginDrag(BuildPointer(hudPosition));
-            }
-        }
-
-        if (held && pointerDragging && pointerDrag != null && mapped)
-        {
-            pointerDrag.OnDrag(BuildPointer(hudPosition));
-        }
-
-        if (ended && pointerDragging && pointerDrag != null)
-        {
-            if (!mapped)
-            {
-                hudPosition = pointerDragLast;
-            }
-
-            pointerDrag.OnEndDrag(BuildPointer(hudPosition));
-            pointerDrag = null;
-            pointerDragging = false;
-        }
-    }
-
-    private Vector2 pointerDragLast;
-
-    private bool TryReadPointer(out Vector2 screenPosition, out bool began, out bool held, out bool ended)
-    {
-        if (Input.touchCount > 0)
-        {
-            Touch touch = Input.GetTouch(0);
-            screenPosition = touch.position;
-            began = touch.phase == TouchPhase.Began;
-            held = touch.phase == TouchPhase.Moved || touch.phase == TouchPhase.Stationary;
-            ended = touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled;
-            return true;
-        }
-
-        screenPosition = Input.mousePosition;
-        began = Input.GetMouseButtonDown(0);
-        held = Input.GetMouseButton(0);
-        ended = Input.GetMouseButtonUp(0);
-        return began || held || ended;
-    }
-
-    private bool TryMapHostToHudScreen(Vector2 hostPosition, out Vector2 hudPosition)
-    {
-        hudPosition = Vector2.zero;
-        Camera hostCamera = FindHostCamera();
-        if (hostCamera == null || displayQuad == null || displayTexture == null)
-        {
-            return false;
-        }
-
-        Ray ray = hostCamera.ScreenPointToRay(hostPosition);
-        Plane plane = new Plane(displayQuad.transform.forward, displayQuad.transform.position);
-        if (!plane.Raycast(ray, out float distance))
-        {
-            plane = new Plane(-displayQuad.transform.forward, displayQuad.transform.position);
-            if (!plane.Raycast(ray, out distance))
-            {
-                return false;
-            }
-        }
-
-        Vector3 local = displayQuad.transform.InverseTransformPoint(ray.GetPoint(distance));
-        float meshU = local.x + 0.5f;
-        float meshV = local.y + 0.5f;
-        if (!pointerDragging && (meshU < 0f || meshU > 1f || meshV < 0f || meshV > 1f))
-        {
-            return false;
-        }
-
-        float textureU = meshU * textureScale.x + textureOffset.x;
-        float textureV = meshV * textureScale.y + textureOffset.y;
-        if (levelHud == null || hudCamera == null)
-        {
-            return false;
-        }
-
-        RectTransform root = levelHud.GetComponent<RectTransform>();
-        Vector3[] corners = new Vector3[4];
-        root.GetWorldCorners(corners);
-        Vector3 world = corners[0] + (corners[3] - corners[0]) * textureU + (corners[1] - corners[0]) * textureV;
-        Vector3 screen = hudCamera.WorldToScreenPoint(world);
-        if (screen.z < 0f)
-        {
-            return false;
-        }
-
-        hudPosition = screen;
-        pointerDragLast = hudPosition;
-        return true;
-    }
-
-    private CameraFocusDrag RaycastDrag(Vector2 hudPosition)
-    {
-        EventSystem eventSystem = EventSystem.current;
-        if (eventSystem == null)
-        {
-            return null;
-        }
-
-        pointerHits.Clear();
-        eventSystem.RaycastAll(BuildPointer(hudPosition), pointerHits);
-        for (int i = 0; i < pointerHits.Count; i++)
-        {
-            CameraFocusDrag drag = pointerHits[i].gameObject.GetComponent<CameraFocusDrag>();
-            if (drag != null)
-            {
-                return drag;
-            }
-        }
-
-        return null;
-    }
-
-    private PointerEventData BuildPointer(Vector2 hudPosition)
-    {
-        return new PointerEventData(EventSystem.current)
-        {
-            position = hudPosition,
-            pressPosition = hudPosition,
-            button = PointerEventData.InputButton.Left
-        };
     }
 
     private void HideHostedOverlayUi()
@@ -960,7 +770,7 @@ public sealed class CameraDisplayHost : MonoBehaviour
         Canvas[] canvases = FindObjectsOfType<Canvas>();
         for (int i = 0; i < canvases.Length; i++)
         {
-            if (canvases[i].renderMode == RenderMode.ScreenSpaceOverlay)
+            if (canvases[i].renderMode == RenderMode.ScreenSpaceOverlay && canvases[i].name != "CameraFrameHud")
             {
                 canvases[i].enabled = false;
             }
@@ -984,31 +794,42 @@ public sealed class CameraDisplayHost : MonoBehaviour
             Destroy(quadCollider);
         }
 
-        displayQuad.transform.SetParent(bodyRoot, false);
         Renderer lcdGlass = FindLcdGlassRenderer(bodyRoot);
-<<<<<<< Updated upstream
-        if (lcdGlass != null)
-        {
-            Bounds lcdBounds = lcdGlass.bounds;
-            displayQuad.transform.position = new Vector3(lcdBounds.center.x, lcdBounds.center.y, lcdBounds.min.z - 0.02f);
-=======
         Renderer openingPlate = FindNamedRenderer(bodyRoot, "PolySphere1_1");
+        Renderer leather = FindNamedRenderer(bodyRoot, "UMesh_PolySphere2_6");
         Renderer opening = openingPlate != null ? openingPlate : lcdGlass;
         if (opening != null)
         {
             Bounds openingBounds = opening.bounds;
+            float frontZ = openingBounds.min.z;
+            if (leather != null)
+            {
+                frontZ = Mathf.Min(frontZ, leather.bounds.min.z);
+            }
+
             displayAspect = openingBounds.size.x / Mathf.Max(0.01f, openingBounds.size.y);
             displayQuad.transform.SetParent(null, false);
-            displayQuad.transform.position = new Vector3(openingBounds.center.x, openingBounds.center.y, openingBounds.min.z - 0.01f);
->>>>>>> Stashed changes
+            displayQuad.transform.position = new Vector3(openingBounds.center.x, openingBounds.center.y, frontZ - 0.01f);
             displayQuad.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
-            displayQuad.transform.localScale = new Vector3(lcdBounds.size.x * 0.86f, lcdBounds.size.y * 0.86f, 1f);
+            displayQuad.transform.localScale = new Vector3(openingBounds.size.x, openingBounds.size.y, 1f);
+            displayQuad.transform.SetParent(bodyRoot, true);
         }
         else
         {
+            displayQuad.transform.SetParent(bodyRoot, false);
             displayQuad.transform.localPosition = new Vector3(0.02f, -1.31f, -0.93f);
             displayQuad.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
             displayQuad.transform.localScale = new Vector3(2.9f, 1.78f, 1f);
+        }
+
+        if (lcdGlass != null)
+        {
+            lcdGlass.enabled = false;
+        }
+
+        if (openingPlate != null)
+        {
+            openingPlate.enabled = false;
         }
 
         AssignCameraModelLayer(bodyRoot);
@@ -1059,8 +880,42 @@ public sealed class CameraDisplayHost : MonoBehaviour
         return null;
     }
 
+    private static Renderer FindNamedRenderer(Transform root, string rendererName)
+    {
+        if (root == null)
+        {
+            return null;
+        }
+
+        Transform[] children = root.GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < children.Length; i++)
+        {
+            if (children[i].name == rendererName)
+            {
+                return children[i].GetComponent<Renderer>();
+            }
+        }
+
+        return null;
+    }
+
     private static Camera FindHostCamera()
     {
+        if (Instance != null)
+        {
+            Camera[] sceneCameras = FindObjectsOfType<Camera>(true);
+            for (int i = 0; i < sceneCameras.Length; i++)
+            {
+                Camera candidate = sceneCameras[i];
+                if (candidate != null &&
+                    candidate.gameObject.scene == Instance.gameObject.scene &&
+                    candidate.name == "CameraFrameCamera")
+                {
+                    return candidate;
+                }
+            }
+        }
+
         Camera hostCamera = Camera.main;
         if (hostCamera != null && hostCamera.targetTexture == null)
         {
@@ -1148,7 +1003,9 @@ public sealed class CameraDisplayHost : MonoBehaviour
 
     private void CreateRenderTarget()
     {
-        displayTexture = new RenderTexture(Mathf.Max(16, displayWidth), Mathf.Max(16, displayHeight), 16, RenderTextureFormat.ARGB32)
+        int textureHeight = Mathf.Max(16, displayHeight);
+        int textureWidth = Mathf.Max(16, Mathf.RoundToInt(textureHeight * Mathf.Max(0.1f, displayAspect)));
+        displayTexture = new RenderTexture(textureWidth, textureHeight, 16, RenderTextureFormat.ARGB32)
         {
             name = "CameraLCD_RT",
             filterMode = FilterMode.Bilinear,
@@ -1197,15 +1054,17 @@ public sealed class CameraDisplayHost : MonoBehaviour
             return;
         }
 
+        Vector2 scale = new Vector2(-1f, 1f);
+        Vector2 offset = new Vector2(1f, 0f);
         displayMaterial.SetTexture("_BaseMap", displayTexture);
         displayMaterial.SetTexture("_MainTex", displayTexture);
-        displayMaterial.SetTextureScale("_BaseMap", textureScale);
-        displayMaterial.SetTextureOffset("_BaseMap", textureOffset);
-        displayMaterial.SetTextureScale("_MainTex", textureScale);
-        displayMaterial.SetTextureOffset("_MainTex", textureOffset);
+        displayMaterial.SetTextureScale("_BaseMap", scale);
+        displayMaterial.SetTextureOffset("_BaseMap", offset);
+        displayMaterial.SetTextureScale("_MainTex", scale);
+        displayMaterial.SetTextureOffset("_MainTex", offset);
         displayMaterial.mainTexture = displayTexture;
-        displayMaterial.mainTextureScale = textureScale;
-        displayMaterial.mainTextureOffset = textureOffset;
+        displayMaterial.mainTextureScale = scale;
+        displayMaterial.mainTextureOffset = offset;
     }
 
     private void ReleaseRenderTarget()

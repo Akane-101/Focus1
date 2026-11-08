@@ -219,6 +219,32 @@ public sealed class FocusLevelState : MonoBehaviour
 
     private static string GetNextLevelName(string currentName)
     {
+        if (!string.IsNullOrEmpty(currentName) && currentName.StartsWith(CameraDisplayHost.EmbeddedLevelPrefix))
+        {
+            for (int levelNumber = 1; levelNumber <= CameraDisplayHost.LevelCount - 1; levelNumber++)
+            {
+                if (currentName == CameraDisplayHost.EmbeddedLevelPrefix + levelNumber)
+                {
+                    return CameraDisplayHost.EmbeddedLevelPrefix + (levelNumber + 1);
+                }
+            }
+
+            return null;
+        }
+
+        if (!string.IsNullOrEmpty(currentName) && currentName.StartsWith("ColorLevel"))
+        {
+            for (int levelNumber = 1; levelNumber <= CameraDisplayHost.LevelCount - 1; levelNumber++)
+            {
+                if (currentName == "ColorLevel" + levelNumber)
+                {
+                    return "ColorLevel" + (levelNumber + 1);
+                }
+            }
+
+            return null;
+        }
+
         if (currentName == "Level1" || currentName == "1")
         {
             return "Level2";
@@ -312,7 +338,7 @@ public sealed class FocusLevelState : MonoBehaviour
         for (int i = 0; i < cameras.Length; i++)
         {
             Camera camera = cameras[i];
-            if (camera == null || camera.gameObject.scene != scene)
+            if (camera == null || camera.gameObject.scene != scene || camera.name == "CameraFrameCamera")
             {
                 continue;
             }
