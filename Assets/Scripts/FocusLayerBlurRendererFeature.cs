@@ -185,10 +185,7 @@ public sealed class FocusLayerBlurRendererFeature : ScriptableRendererFeature
                 return;
             }
 
-            if (cameraColor == null)
-            {
-                cameraColor = renderingData.cameraData.renderer.cameraColorTargetHandle;
-            }
+            cameraColor = renderingData.cameraData.renderer.cameraColorTargetHandle;
 
             if (cameraColor == null || compositeHandle == null || sharpHandle == null || blurAHandle == null || blurBHandle == null)
             {

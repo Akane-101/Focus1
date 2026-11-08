@@ -187,6 +187,18 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 227248058366013763, guid: ad6b5eaf6b7d42342a1f1296f0101771, type: 3}
+      propertyPath: m_AnchoredPosition.x
+      value: 196
+      objectReference: {fileID: 0}
+    - target: {fileID: 227248058366013763, guid: ad6b5eaf6b7d42342a1f1296f0101771, type: 3}
+      propertyPath: m_AnchoredPosition.y
+      value: -12.3
+      objectReference: {fileID: 0}
+    - target: {fileID: 232515829806936802, guid: ad6b5eaf6b7d42342a1f1296f0101771, type: 3}
+      propertyPath: leftBound
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 558696901275022147, guid: ad6b5eaf6b7d42342a1f1296f0101771, type: 3}
       propertyPath: m_Pivot.x
       value: 0
@@ -270,6 +282,22 @@ PrefabInstance:
     - target: {fileID: 1583251272921120354, guid: ad6b5eaf6b7d42342a1f1296f0101771, type: 3}
       propertyPath: m_Name
       value: CameraFrameHud
+      objectReference: {fileID: 0}
+    - target: {fileID: 7492705826733829494, guid: ad6b5eaf6b7d42342a1f1296f0101771, type: 3}
+      propertyPath: m_Color.a
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7492705826733829494, guid: ad6b5eaf6b7d42342a1f1296f0101771, type: 3}
+      propertyPath: m_Color.b
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7492705826733829494, guid: ad6b5eaf6b7d42342a1f1296f0101771, type: 3}
+      propertyPath: m_Color.g
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7492705826733829494, guid: ad6b5eaf6b7d42342a1f1296f0101771, type: 3}
+      propertyPath: m_Color.r
+      value: 1
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

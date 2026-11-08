@@ -6,8 +6,6 @@ public sealed class CameraHudLayout : MonoBehaviour
     [SerializeField] private RectTransform hudFrame;
     [SerializeField] private RectTransform handle;
     [SerializeField] private CameraFocusDrag focusDrag;
-    [SerializeField] private float handleSpriteWidth = 25f;
-    [SerializeField] private float handleSpriteHeight = 50f;
 
     private bool configured;
 
@@ -28,14 +26,24 @@ public sealed class CameraHudLayout : MonoBehaviour
 
         if (!configured && focusDrag != null && handle != null)
         {
-            focusDrag.Configure(handle, handleSpriteWidth / 825f, handleSpriteHeight / 133f);
+            focusDrag.Configure(handle);
             configured = true;
         }
 
         GameObject display = GameObject.Find("CameraLCD");
         Renderer displayRenderer = display != null ? display.GetComponent<Renderer>() : null;
+        Camera frameCamera = null;
         GameObject frameObject = GameObject.Find("CameraFrameCamera");
-        Camera frameCamera = frameObject != null ? frameObject.GetComponent<Camera>() : null;
+        if (frameObject != null)
+        {
+            frameCamera = frameObject.GetComponent<Camera>();
+        }
+
+        if (frameCamera == null && Camera.main != null && Camera.main.targetTexture == null)
+        {
+            frameCamera = Camera.main;
+        }
+
         if (frameCamera != null && displayRenderer != null)
         {
             FitToOpening(frameCamera, displayRenderer.bounds);

@@ -89,6 +89,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cf37145858acf2c4f82399747075064c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  handle: {fileID: 227248058366013763}
+  leftMax: -218.1
+  rightMax: 196
 --- !u!1 &1583251272921120354
 GameObject:
   m_ObjectHideFlags: 0
@@ -207,8 +210,6 @@ MonoBehaviour:
   hudFrame: {fileID: 3141540539454395996}
   handle: {fileID: 227248058366013763}
   focusDrag: {fileID: 232515829806936802}
-  handleSpriteWidth: 25
-  handleSpriteHeight: 50
 --- !u!1 &4949203768539851149
 GameObject:
   m_ObjectHideFlags: 0

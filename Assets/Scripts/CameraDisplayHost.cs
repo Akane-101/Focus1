@@ -36,6 +36,8 @@ public sealed class CameraDisplayHost : MonoBehaviour
 
     [SerializeField] private int displayWidth = 1280;
     [SerializeField] private int displayHeight = 720;
+    [SerializeField] private Vector2 screenFill = new Vector2(0.86f, 0.84f);
+    [SerializeField] private float screenLift = 0.01f;
     [SerializeField] private bool embeddedLevel;
     [SerializeField] private int embeddedLevelIndex;
     [SerializeField] private Sprite viewfinderSprite;
@@ -559,7 +561,8 @@ public sealed class CameraDisplayHost : MonoBehaviour
         GameObject handleObject = CreateHudImage("FocusHandle", focusHandle, trackObject.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), false);
         RectTransform handleRect = handleObject.GetComponent<RectTransform>();
         handleRect.pivot = new Vector2(0.5f, 0.5f);
-        trackObject.GetComponent<CameraFocusDrag>().Configure(handleRect, focusHandle.rect.width / focusTrack.rect.width, focusHandle.rect.height / focusTrack.rect.height);
+        handleRect.sizeDelta = new Vector2(focusHandle.rect.width, focusHandle.rect.height);
+        trackObject.GetComponent<CameraFocusDrag>().Configure(handleRect);
     }
 
     private static GameObject CreateHudImage(string name, Sprite sprite, Transform parent, Vector2 anchorMin, Vector2 anchorMax, bool receivesDrag)
@@ -620,14 +623,6 @@ public sealed class CameraDisplayHost : MonoBehaviour
 
         hudFrame.anchoredPosition = localMin;
         hudFrame.sizeDelta = localMax - localMin;
-
-        RectTransform handle = hudFrame.Find("FocusTrack/FocusHandle") as RectTransform;
-        if (handle != null)
-        {
-            float widthScale = hudFrame.rect.width / 1671f;
-            float heightScale = hudFrame.rect.height / 941f;
-            handle.sizeDelta = new Vector2(focusHandle.rect.width * widthScale, focusHandle.rect.height * heightScale);
-        }
     }
 
     private void OffsetEmbeddedLevelRoots()
@@ -796,22 +791,34 @@ public sealed class CameraDisplayHost : MonoBehaviour
 
         Renderer lcdGlass = FindLcdGlassRenderer(bodyRoot);
         Renderer openingPlate = FindNamedRenderer(bodyRoot, "PolySphere1_1");
-        Renderer leather = FindNamedRenderer(bodyRoot, "UMesh_PolySphere2_6");
-        Renderer opening = openingPlate != null ? openingPlate : lcdGlass;
+        Renderer opening = lcdGlass != null ? lcdGlass : openingPlate;
         if (opening != null)
         {
             Bounds openingBounds = opening.bounds;
-            float frontZ = openingBounds.min.z;
-            if (leather != null)
+            float inset = Mathf.Clamp(Mathf.Min(screenFill.x, screenFill.y), 0.5f, 1f);
+            float width = openingBounds.size.x * inset;
+            float height = openingBounds.size.y * inset;
+            if (lcdGlass != null && openingPlate != null)
             {
-                frontZ = Mathf.Min(frontZ, leather.bounds.min.z);
+                float plateInset = Mathf.Clamp(Mathf.Min(screenFill.x, screenFill.y), 0.5f, 1f);
+                float fittedWidth = openingPlate.bounds.size.x * plateInset;
+                float fittedHeight = openingPlate.bounds.size.y * plateInset;
+                float contain = Mathf.Min(
+                    1f,
+                    openingBounds.size.x / Mathf.Max(0.01f, fittedWidth),
+                    openingBounds.size.y / Mathf.Max(0.01f, fittedHeight));
+                width = fittedWidth * contain;
+                height = fittedHeight * contain;
             }
 
-            displayAspect = openingBounds.size.x / Mathf.Max(0.01f, openingBounds.size.y);
+            displayAspect = width / Mathf.Max(0.01f, height);
             displayQuad.transform.SetParent(null, false);
-            displayQuad.transform.position = new Vector3(openingBounds.center.x, openingBounds.center.y, frontZ - 0.01f);
+            displayQuad.transform.position = new Vector3(
+                openingBounds.center.x,
+                openingBounds.center.y,
+                openingBounds.min.z - Mathf.Max(0.001f, screenLift));
             displayQuad.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
-            displayQuad.transform.localScale = new Vector3(openingBounds.size.x, openingBounds.size.y, 1f);
+            displayQuad.transform.localScale = new Vector3(width, height, 1f);
             displayQuad.transform.SetParent(bodyRoot, true);
         }
         else
@@ -825,11 +832,6 @@ public sealed class CameraDisplayHost : MonoBehaviour
         if (lcdGlass != null)
         {
             lcdGlass.enabled = false;
-        }
-
-        if (openingPlate != null)
-        {
-            openingPlate.enabled = false;
         }
 
         AssignCameraModelLayer(bodyRoot);
