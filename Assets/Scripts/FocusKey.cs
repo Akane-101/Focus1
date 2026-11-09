@@ -11,6 +11,11 @@ public sealed class FocusKey : MonoBehaviour
     private bool isCollected;
     private bool canCollect;
 
+    public bool IsCollected
+    {
+        get { return isCollected; }
+    }
+
     private void Awake()
     {
         levelState = FindObjectOfType<FocusLevelState>();

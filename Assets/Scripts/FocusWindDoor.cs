@@ -10,7 +10,9 @@ public sealed class FocusWindDoor : MonoBehaviour
     private FocusLevelState levelState;
     private SpriteRenderer spriteRenderer;
     private Collider2D doorCollider;
+    private FocusKey requiredKey;
     private bool stateBound;
+    private bool gatesOnKey;
 
     private void Awake()
     {
@@ -28,6 +30,7 @@ public sealed class FocusWindDoor : MonoBehaviour
     private void Start()
     {
         BindLevelState();
+        BindKeyIfThisIsTheExit();
         ApplyState();
     }
 
@@ -37,16 +40,17 @@ public sealed class FocusWindDoor : MonoBehaviour
         TryAdvanceFromWind();
         TryMarkReached();
         TryOpenForExit();
+        ApplyPassage();
         if (levelState != null)
         {
-            levelState.TryEnterDoor(transform, enterDistance, true);
+            levelState.TryEnterDoor(transform, enterDistance, HasRequiredKey());
         }
     }
 
     public bool IsEnterReady()
     {
         BindLevelState();
-        return levelState != null && FocusLevelExit.IsPlayerAt(transform, levelState.PlayerTransform, enterDistance);
+        return levelState != null && HasRequiredKey() && FocusLevelExit.IsPlayerAt(transform, levelState.PlayerTransform, enterDistance);
     }
 
     private void OnDisable()
@@ -86,7 +90,53 @@ public sealed class FocusWindDoor : MonoBehaviour
 
         spriteRenderer.enabled = true;
         spriteRenderer.sortingOrder = levelState.GetSortingOrder(FocusLayer.Mid, FocusSortOrder.Resolve(transform, 0));
+        ApplyPassage();
+    }
+
+    private void ApplyPassage()
+    {
+        if (doorCollider == null)
+        {
+            return;
+        }
+
         doorCollider.enabled = true;
+        doorCollider.isTrigger = true;
+    }
+
+    private void BindKeyIfThisIsTheExit()
+    {
+        if (FindObjectsOfType<FocusLockedDoor>().Length > 0)
+        {
+            gatesOnKey = false;
+            requiredKey = null;
+            return;
+        }
+
+        requiredKey = null;
+        FocusKey[] keys = FindObjectsOfType<FocusKey>(true);
+        float bestDistance = float.MaxValue;
+        for (int i = 0; i < keys.Length; i++)
+        {
+            if (keys[i] == null)
+            {
+                continue;
+            }
+
+            float distance = (transform.position - keys[i].transform.position).sqrMagnitude;
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                requiredKey = keys[i];
+            }
+        }
+
+        gatesOnKey = requiredKey != null;
+    }
+
+    private bool HasRequiredKey()
+    {
+        return !gatesOnKey || (requiredKey != null && requiredKey.IsCollected);
     }
 
     private void TryAdvanceFromWind()

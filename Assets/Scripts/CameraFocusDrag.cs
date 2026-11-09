@@ -1,22 +1,54 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 
-public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHandler, IPointerDownHandler
+public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHandler, IPointerDownHandler, IPointerUpHandler
 {
     [SerializeField] private RectTransform handle;
+    [SerializeField] private RectTransform leftBound;
+    [SerializeField] private RectTransform nearStop;
+    [SerializeField] private RectTransform midStop;
+    [SerializeField] private RectTransform farStop;
+    [SerializeField] private RectTransform rightBound;
 
-    [Tooltip("Smallest Pos X the handle can reach. Same unit as FocusHandle RectTransform Pos X.")]
-    [SerializeField] private float leftMax = -218.1f;
+    [Tooltip("进入该档位的距离，按 FocusTrack 宽度的比例计算。")]
+    [Range(0.005f, 0.2f)]
+    [SerializeField] private float snapRange = 0.045f;
 
-    [Tooltip("Largest Pos X the handle can reach. Same unit as FocusHandle RectTransform Pos X.")]
-    [SerializeField] private float rightMax = 196f;
+    [Tooltip("吸住之后，指针还要再走出的距离，必须大于吸附范围。按 FocusTrack 宽度的比例计算。")]
+    [Range(0.01f, 0.35f)]
+    [SerializeField] private float escapeDistance = 0.09f;
+
+    [SerializeField] private float authoredYOverHeight = -0.116f;
+
+    public event System.Action PointerPressed;
+    public event System.Action PointerReleased;
+    public event System.Action DragBegan;
+    public event System.Action<FocusLayer> FocusSnapped;
 
     private bool applying;
     private bool subscribed;
-    private bool capturedPosition;
-    private bool syncedLayer;
+    private bool placed;
+    private bool orderWarned;
+    private bool pointerHeld;
+    private bool announcedDrag;
+    private int caught = -1;
+    private int suppressed = -1;
+    private float freeNormalized = 0.5f;
+    private float lastTrackWidth = -1f;
     private FocusLayer lastLayer;
-    private float lockedAnchoredY;
+
+    public RectTransform LeftBound { get { return leftBound; } }
+    public RectTransform NearStop { get { return nearStop; } }
+    public RectTransform MidStop { get { return midStop; } }
+    public RectTransform FarStop { get { return farStop; } }
+    public RectTransform RightBound { get { return rightBound; } }
+    public float SnapRange { get { return snapRange; } }
+    public float EscapeDistance { get { return escapeDistance; } }
+
+    public bool IsCaughtOn(FocusLayer layer)
+    {
+        return caught >= 0 && StopLayer(caught) == layer;
+    }
 
     public void Configure(RectTransform handleRect)
     {
@@ -24,9 +56,28 @@ public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHan
         {
             handle = handleRect;
         }
+    }
 
-        CaptureAuthoredPosition();
-        Subscribe();
+    public string OrderError()
+    {
+        if (!HasMarkers())
+        {
+            return "五个标记点还没有全部指定。";
+        }
+
+        float left = LocalX(leftBound);
+        float near = LocalX(nearStop);
+        float mid = LocalX(midStop);
+        float far = LocalX(farStop);
+        float right = LocalX(rightBound);
+        if (left < near && near < mid && mid < far && far < right)
+        {
+            return null;
+        }
+
+        return "标记点顺序必须是：最左 < 近景 < 中景 < 远景 < 最右。当前 "
+            + left.ToString("F1") + " / " + near.ToString("F1") + " / " + mid.ToString("F1") + " / "
+            + far.ToString("F1") + " / " + right.ToString("F1");
     }
 
     private void Awake()
@@ -39,8 +90,6 @@ public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHan
                 handle = child as RectTransform;
             }
         }
-
-        CaptureAuthoredPosition();
     }
 
     private void OnEnable()
@@ -48,28 +97,133 @@ public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHan
         Subscribe();
     }
 
-    private void OnDestroy()
+    private void OnDisable()
     {
         FocusLevelState levelState = FindObjectOfType<FocusLevelState>();
         if (levelState != null)
         {
             levelState.StateChanged -= OnStateChanged;
         }
+
+        subscribed = false;
+    }
+
+    private void LateUpdate()
+    {
+        if (!Application.isPlaying || handle == null)
+        {
+            return;
+        }
+
+        Rect trackRect = Track.rect;
+        if (trackRect.width < 8f || trackRect.height < 8f)
+        {
+            return;
+        }
+
+        if (!placed)
+        {
+            PlaceInitial();
+            placed = true;
+            lastTrackWidth = trackRect.width;
+            return;
+        }
+
+        if (Mathf.Abs(trackRect.width - lastTrackWidth) > 0.5f)
+        {
+            ApplyPose();
+            lastTrackWidth = trackRect.width;
+        }
+    }
+
+    private void OnValidate()
+    {
+        if (escapeDistance <= snapRange)
+        {
+            escapeDistance = snapRange + 0.01f;
+        }
+
+        if (Application.isPlaying || handle == null)
+        {
+            return;
+        }
+
+#if UNITY_EDITOR
+        if (UnityEditor.PrefabUtility.IsPartOfPrefabInstance(this))
+        {
+            return;
+        }
+#endif
+
+        Rect trackRect = Track.rect;
+        if (trackRect.height < 8f)
+        {
+            return;
+        }
+
+        authoredYOverHeight = handle.anchoredPosition.y / trackRect.height;
     }
 
     public void OnPointerDown(PointerEventData eventData)
     {
-        ApplyPointer(eventData);
+        if (!pointerHeld)
+        {
+            pointerHeld = true;
+            announcedDrag = false;
+            if (PointerPressed != null)
+            {
+                PointerPressed();
+            }
+        }
+
+        suppressed = -1;
+        FollowPointer(eventData);
     }
 
     public void OnBeginDrag(PointerEventData eventData)
     {
-        ApplyPointer(eventData);
+        if (!announcedDrag)
+        {
+            announcedDrag = true;
+            if (DragBegan != null)
+            {
+                DragBegan();
+            }
+        }
+
+        FollowPointer(eventData);
     }
 
     public void OnDrag(PointerEventData eventData)
     {
-        ApplyPointer(eventData);
+        FollowPointer(eventData);
+    }
+
+    public void OnPointerUp(PointerEventData eventData)
+    {
+        suppressed = -1;
+        ApplyPose();
+        if (!pointerHeld)
+        {
+            return;
+        }
+
+        pointerHeld = false;
+        if (PointerReleased != null)
+        {
+            PointerReleased();
+        }
+    }
+
+    private void PlaceInitial()
+    {
+        FocusLevelState levelState = FindObjectOfType<FocusLevelState>();
+        FocusLayer layer = levelState != null ? levelState.CurrentLayer : FocusLayer.Mid;
+        caught = StopIndex(layer);
+        lastLayer = layer;
+        freeNormalized = NormalizedOnTrack(LocalX(StopMarker(caught)));
+        ApplyPose();
+        Subscribe();
     }
 
     private void Subscribe()
@@ -86,20 +240,8 @@ public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHan
         }
 
         lastLayer = levelState.CurrentLayer;
-        syncedLayer = true;
         levelState.StateChanged += OnStateChanged;
         subscribed = true;
-    }
-
-    private void CaptureAuthoredPosition()
-    {
-        if (capturedPosition || handle == null)
-        {
-            return;
-        }
-
-        lockedAnchoredY = handle.anchoredPosition.y;
-        capturedPosition = true;
     }
 
     private void OnStateChanged()
@@ -110,111 +252,210 @@ public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHan
         }
 
         FocusLevelState levelState = FindObjectOfType<FocusLevelState>();
-        if (levelState == null || (syncedLayer && levelState.CurrentLayer == lastLayer))
+        if (levelState == null || levelState.CurrentLayer == lastLayer)
         {
             return;
         }
 
         lastLayer = levelState.CurrentLayer;
-        syncedLayer = true;
-        ApplyLayer(levelState.CurrentLayer);
+        caught = StopIndex(lastLayer);
+        suppressed = -1;
+        ApplyPose();
     }
 
-    private void ApplyPointer(PointerEventData eventData)
+    private void FollowPointer(PointerEventData eventData)
     {
-        if (handle == null)
+        if (handle == null || !HasMarkers())
         {
             return;
         }
 
-        RectTransform rect = (RectTransform)transform;
-        Camera eventCamera = eventData.pressEventCamera != null ? eventData.pressEventCamera : eventData.enterEventCamera;
+        string orderError = OrderError();
+        if (orderError != null)
+        {
+            if (!orderWarned)
+            {
+                Debug.LogWarning(orderError, this);
+                orderWarned = true;
+            }
+
+            return;
+        }
+
         Vector2 localPoint;
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, eventData.position, eventCamera, out localPoint))
+        Camera eventCamera = eventData.pressEventCamera != null ? eventData.pressEventCamera : eventData.enterEventCamera;
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(Track, eventData.position, eventCamera, out localPoint))
         {
             return;
         }
 
-        SetHandleCenterX(localPoint.x);
-        UpdateFocus(CurrentNormalized());
-    }
-
-    public void ApplyNormalized(float normalized, bool updateFocus)
-    {
-        normalized = Mathf.Clamp01(normalized);
-        if (handle != null)
+        float pointerX = Mathf.Clamp(localPoint.x, LocalX(leftBound), LocalX(rightBound));
+        if (caught >= 0)
         {
-            Rect trackRect = ((RectTransform)transform).rect;
-            float centerX = Mathf.Lerp(trackRect.xMin, trackRect.xMax, normalized);
-            SetHandleCenterX(centerX);
+            float heldX = LocalX(StopMarker(caught));
+            if (Mathf.Abs(pointerX - heldX) <= EscapePixels())
+            {
+                ApplyPose();
+                return;
+            }
+
+            suppressed = caught;
+            caught = -1;
         }
 
-        if (updateFocus)
+        if (suppressed >= 0 && Mathf.Abs(pointerX - LocalX(StopMarker(suppressed))) > SnapPixels())
         {
-            UpdateFocus(normalized);
+            suppressed = -1;
         }
+
+        int hit = StopWithin(pointerX, suppressed);
+        if (hit >= 0)
+        {
+            bool newlyCaught = hit != caught;
+            caught = hit;
+            SetFocus(StopLayer(hit));
+            if (newlyCaught && FocusSnapped != null)
+            {
+                FocusSnapped(StopLayer(hit));
+            }
+        }
+        else
+        {
+            freeNormalized = NormalizedOnTrack(pointerX);
+        }
+
+        ApplyPose();
     }
 
-    private void ApplyLayer(FocusLayer layer)
+    private void ApplyPose()
     {
-        float normalized = 0.5f;
+        if (handle == null || !HasMarkers())
+        {
+            return;
+        }
+
+        float targetX = caught >= 0
+            ? LocalX(StopMarker(caught))
+            : Mathf.Lerp(Track.rect.xMin, Track.rect.xMax, freeNormalized);
+        targetX = Mathf.Clamp(targetX, LocalX(leftBound), LocalX(rightBound));
+        SetCenterX(targetX);
+
+        Vector2 anchored = handle.anchoredPosition;
+        anchored.y = authoredYOverHeight * Track.rect.height;
+        handle.anchoredPosition = anchored;
+    }
+
+    private void SetCenterX(float trackLocalX)
+    {
+        Bounds before = RectTransformUtility.CalculateRelativeRectTransformBounds(Track, handle);
+        Vector2 anchored = handle.anchoredPosition;
+        anchored.x += trackLocalX - before.center.x;
+        handle.anchoredPosition = anchored;
+    }
+
+    private int StopWithin(float pointerX, int ignored)
+    {
+        int nearest = -1;
+        float nearestDistance = SnapPixels();
+        for (int i = 0; i < 3; i++)
+        {
+            if (i == ignored)
+            {
+                continue;
+            }
+
+            float distance = Mathf.Abs(pointerX - LocalX(StopMarker(i)));
+            if (distance <= nearestDistance)
+            {
+                nearest = i;
+                nearestDistance = distance;
+            }
+        }
+
+        return nearest;
+    }
+
+    private float SnapPixels()
+    {
+        return Mathf.Max(0.01f, snapRange) * Track.rect.width;
+    }
+
+    private float EscapePixels()
+    {
+        return Mathf.Max(SnapPixels() + 0.01f, escapeDistance * Track.rect.width);
+    }
+
+    private float NormalizedOnTrack(float localX)
+    {
+        return Mathf.InverseLerp(Track.rect.xMin, Track.rect.xMax, localX);
+    }
+
+    private float LocalX(RectTransform marker)
+    {
+        if (marker == null)
+        {
+            return 0f;
+        }
+
+        return Track.InverseTransformPoint(marker.position).x;
+    }
+
+    private RectTransform StopMarker(int index)
+    {
+        if (index <= 0)
+        {
+            return nearStop;
+        }
+
+        if (index == 1)
+        {
+            return midStop;
+        }
+
+        return farStop;
+    }
+
+    private static int StopIndex(FocusLayer layer)
+    {
         if (layer == FocusLayer.Near)
         {
-            normalized = 0.16f;
-        }
-        else if (layer == FocusLayer.Far)
-        {
-            normalized = 0.84f;
+            return 0;
         }
 
-        ApplyNormalized(normalized, false);
+        if (layer == FocusLayer.Far)
+        {
+            return 2;
+        }
+
+        return 1;
     }
 
-    private void SetHandleCenterX(float parentLocalX)
+    private static FocusLayer StopLayer(int index)
     {
-        CaptureAuthoredPosition();
-        Bounds before = RectTransformUtility.CalculateRelativeRectTransformBounds((RectTransform)transform, handle);
-        Vector2 anchored = handle.anchoredPosition;
-        anchored.x += parentLocalX - before.center.x;
-        anchored.y = lockedAnchoredY;
-        anchored.x = Mathf.Clamp(anchored.x, Mathf.Min(leftMax, rightMax), Mathf.Max(leftMax, rightMax));
-        handle.anchoredPosition = anchored;
-        KeepEdgesInsideTrack();
+        if (index <= 0)
+        {
+            return FocusLayer.Near;
+        }
+
+        if (index == 1)
+        {
+            return FocusLayer.Mid;
+        }
+
+        return FocusLayer.Far;
     }
 
-    private void KeepEdgesInsideTrack()
+    private bool HasMarkers()
     {
-        Rect trackRect = ((RectTransform)transform).rect;
-        Bounds bounds = RectTransformUtility.CalculateRelativeRectTransformBounds((RectTransform)transform, handle);
-        float shift = 0f;
-        if (bounds.min.x < trackRect.xMin)
-        {
-            shift = trackRect.xMin - bounds.min.x;
-        }
-        else if (bounds.max.x > trackRect.xMax)
-        {
-            shift = trackRect.xMax - bounds.max.x;
-        }
-
-        if (Mathf.Abs(shift) <= 0.01f)
-        {
-            return;
-        }
-
-        Vector2 anchored = handle.anchoredPosition;
-        anchored.x += shift;
-        anchored.y = lockedAnchoredY;
-        handle.anchoredPosition = anchored;
+        return leftBound != null && nearStop != null && midStop != null && farStop != null && rightBound != null;
     }
 
-    private float CurrentNormalized()
+    private RectTransform Track
     {
-        Rect trackRect = ((RectTransform)transform).rect;
-        Bounds bounds = RectTransformUtility.CalculateRelativeRectTransformBounds((RectTransform)transform, handle);
-        return Mathf.Clamp01(Mathf.InverseLerp(trackRect.xMin, trackRect.xMax, bounds.center.x));
+        get { return (RectTransform)transform; }
     }
 
-    private void UpdateFocus(float normalized)
+    private void SetFocus(FocusLayer layer)
     {
         FocusLevelState levelState = FindObjectOfType<FocusLevelState>();
         if (levelState == null)
@@ -223,23 +464,8 @@ public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHan
         }
 
         applying = true;
-        if (normalized < 0.34f)
-        {
-            levelState.SetLayer(FocusLayer.Near);
-            lastLayer = FocusLayer.Near;
-        }
-        else if (normalized < 0.67f)
-        {
-            levelState.SetLayer(FocusLayer.Mid);
-            lastLayer = FocusLayer.Mid;
-        }
-        else
-        {
-            levelState.SetLayer(FocusLayer.Far);
-            lastLayer = FocusLayer.Far;
-        }
-
-        syncedLayer = true;
+        levelState.SetLayer(layer);
+        lastLayer = layer;
         applying = false;
     }
 }

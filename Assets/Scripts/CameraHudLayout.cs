@@ -1,48 +1,56 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 
+[DefaultExecutionOrder(-50)]
+[ExecuteAlways]
 public sealed class CameraHudLayout : MonoBehaviour
 {
     [SerializeField] private RectTransform hudFrame;
     [SerializeField] private RectTransform handle;
     [SerializeField] private CameraFocusDrag focusDrag;
 
-    private bool configured;
+    private bool handleConfigured;
 
     private void Awake()
     {
+        if (!Application.isPlaying)
+        {
+            return;
+        }
+
         if (FindObjectOfType<EventSystem>() == null)
         {
             new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
         }
     }
 
+    private void OnEnable()
+    {
+        RestoreCanvasScale();
+    }
+
     private void LateUpdate()
     {
+        if (!Application.isPlaying)
+        {
+            RestoreCanvasScale();
+            return;
+        }
+
         if (hudFrame == null)
         {
             return;
         }
 
-        if (!configured && focusDrag != null && handle != null)
+        if (!handleConfigured && focusDrag != null)
         {
             focusDrag.Configure(handle);
-            configured = true;
+            handleConfigured = true;
         }
 
         GameObject display = GameObject.Find("CameraLCD");
         Renderer displayRenderer = display != null ? display.GetComponent<Renderer>() : null;
-        Camera frameCamera = null;
-        GameObject frameObject = GameObject.Find("CameraFrameCamera");
-        if (frameObject != null)
-        {
-            frameCamera = frameObject.GetComponent<Camera>();
-        }
-
-        if (frameCamera == null && Camera.main != null && Camera.main.targetTexture == null)
-        {
-            frameCamera = Camera.main;
-        }
+        Camera frameCamera = FindFrameCamera();
 
         if (frameCamera != null && displayRenderer != null)
         {
@@ -78,5 +86,41 @@ public sealed class CameraHudLayout : MonoBehaviour
         hudFrame.pivot = Vector2.zero;
         hudFrame.anchoredPosition = localMin;
         hudFrame.sizeDelta = localMax - localMin;
+    }
+
+    private static Camera FindFrameCamera()
+    {
+        Camera[] cameras = FindObjectsOfType<Camera>(true);
+        int i;
+        for (i = 0; i < cameras.Length; i++)
+        {
+            Camera candidate = cameras[i];
+            if (candidate != null && candidate.name == "CameraFrameCamera")
+            {
+                return candidate;
+            }
+        }
+
+        for (i = 0; i < cameras.Length; i++)
+        {
+            Camera candidate = cameras[i];
+            if (candidate != null &&
+                candidate.targetTexture == null &&
+                candidate.CompareTag("MainCamera"))
+            {
+                return candidate;
+            }
+        }
+
+        return Camera.main;
+    }
+
+    private void RestoreCanvasScale()
+    {
+        RectTransform canvasRect = transform as RectTransform;
+        if (canvasRect != null && canvasRect.localScale.sqrMagnitude < 0.001f)
+        {
+            canvasRect.localScale = Vector3.one;
+        }
     }
 }

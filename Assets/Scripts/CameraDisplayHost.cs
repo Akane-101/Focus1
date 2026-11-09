@@ -667,11 +667,20 @@ public sealed class CameraDisplayHost : MonoBehaviour
 
         if (unloadCurrent && loadedLevel.IsValid() && loadedLevel.isLoaded)
         {
+            Scene hostScene = gameObject.scene;
+            if (hostScene.IsValid() && hostScene.isLoaded)
+            {
+                SceneManager.SetActiveScene(hostScene);
+            }
+
             AsyncOperation unload = SceneManager.UnloadSceneAsync(loadedLevel);
             while (unload != null && !unload.isDone)
             {
                 yield return null;
             }
+
+            loadedLevel = default(Scene);
+            yield return null;
         }
 
         if (!Application.CanStreamedLevelBeLoaded(levelName))
@@ -682,7 +691,15 @@ public sealed class CameraDisplayHost : MonoBehaviour
         }
 
         AsyncOperation load = SceneManager.LoadSceneAsync(levelName, LoadSceneMode.Additive);
-        while (load != null && !load.isDone)
+        if (load == null)
+        {
+            Debug.LogError("Camera display failed to start loading " + levelName + ".");
+            loading = false;
+            yield break;
+        }
+
+        load.allowSceneActivation = true;
+        while (!load.isDone)
         {
             yield return null;
         }
