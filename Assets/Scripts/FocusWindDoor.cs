@@ -1,18 +1,21 @@
 using UnityEngine;
 
-[RequireComponent(typeof(SpriteRenderer))]
 [RequireComponent(typeof(Collider2D))]
 public sealed class FocusWindDoor : MonoBehaviour
 {
     [SerializeField] private float reachThreshold = 1.35f;
     [SerializeField] private float enterDistance = 3.5f;
+    [SerializeField] [Tooltip("Trigger at the doorway. Resize this collider to change where F can be used.")]
+    private Collider2D enterZone;
 
     private FocusLevelState levelState;
+    private FocusLayerCompositor compositor;
     private SpriteRenderer spriteRenderer;
     private Collider2D doorCollider;
     private FocusKey requiredKey;
     private bool stateBound;
     private bool gatesOnKey;
+    private readonly Collider2D[] enterOverlaps = new Collider2D[8];
 
     private void Awake()
     {
@@ -43,14 +46,14 @@ public sealed class FocusWindDoor : MonoBehaviour
         ApplyPassage();
         if (levelState != null)
         {
-            levelState.TryEnterDoor(transform, enterDistance, HasRequiredKey());
+            levelState.TryEnterDoor(transform, enterDistance, CanEnter());
         }
     }
 
     public bool IsEnterReady()
     {
         BindLevelState();
-        return levelState != null && HasRequiredKey() && FocusLevelExit.IsPlayerAt(transform, levelState.PlayerTransform, enterDistance);
+        return CanEnter() && FocusLevelExit.IsPlayerAt(transform, levelState != null ? levelState.PlayerTransform : null, enterDistance);
     }
 
     private void OnDisable()
@@ -88,8 +91,12 @@ public sealed class FocusWindDoor : MonoBehaviour
             return;
         }
 
-        spriteRenderer.enabled = true;
-        spriteRenderer.sortingOrder = levelState.GetSortingOrder(FocusLayer.Mid, FocusSortOrder.Resolve(transform, 0));
+        if (spriteRenderer != null)
+        {
+            spriteRenderer.enabled = true;
+            spriteRenderer.sortingOrder = levelState.GetSortingOrder(FocusLayer.Mid, FocusSortOrder.Resolve(transform, 0));
+        }
+
         ApplyPassage();
     }
 
@@ -137,6 +144,66 @@ public sealed class FocusWindDoor : MonoBehaviour
     private bool HasRequiredKey()
     {
         return !gatesOnKey || (requiredKey != null && requiredKey.IsCollected);
+    }
+
+    private bool CanEnter()
+    {
+        return levelState != null && HasRequiredKey() && IsDoorInFocus() && IsPlayerInEnterZone();
+    }
+
+    private FocusLayer DoorLayer()
+    {
+        FocusLayerView view = GetComponentInParent<FocusLayerView>();
+        return view != null ? view.RepresentedLayer : FocusLayer.Far;
+    }
+
+    private bool IsDoorInFocus()
+    {
+        if (levelState == null)
+        {
+            return false;
+        }
+
+        if (compositor == null)
+        {
+            compositor = FindObjectOfType<FocusLayerCompositor>();
+        }
+
+        FocusLayer doorLayer = DoorLayer();
+        if (compositor == null)
+        {
+            return levelState.CurrentLayer == doorLayer;
+        }
+
+        return compositor.IsLayerInFocus(doorLayer);
+    }
+
+    private bool IsPlayerInEnterZone()
+    {
+        if (enterZone == null || levelState == null || levelState.PlayerTransform == null)
+        {
+            return false;
+        }
+
+        Collider2D playerCollider = levelState.PlayerTransform.GetComponent<Collider2D>();
+        if (playerCollider == null)
+        {
+            return false;
+        }
+
+        ContactFilter2D filter = new ContactFilter2D();
+        filter.useTriggers = true;
+        filter.useLayerMask = false;
+        int count = enterZone.OverlapCollider(filter, enterOverlaps);
+        for (int i = 0; i < count; i++)
+        {
+            if (enterOverlaps[i] == playerCollider)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void TryAdvanceFromWind()

@@ -99,6 +99,11 @@ public sealed class FocusLayerCompositor : MonoBehaviour
         return Mathf.SmoothStep(0f, 1f, sharpness[(int)layer]);
     }
 
+    public bool IsLayerInFocus(FocusLayer layer)
+    {
+        return levelState != null && levelState.CurrentLayer == layer && sharpness[(int)layer] >= 1f;
+    }
+
     public float GetBlurAmount(FocusLayer layer)
     {
         if (levelState == null)

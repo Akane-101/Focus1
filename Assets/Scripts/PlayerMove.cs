@@ -12,9 +12,13 @@ public sealed class PlayerMove : MonoBehaviour
     [SerializeField] private float deceleration = 30f;
     [SerializeField] private float gravityScale = 4f;
 
+    private const float MoveAnimationThreshold = 0.08f;
+    private static readonly int IsMovingId = Animator.StringToHash("IsMoving");
+
     private Rigidbody2D body;
     private CapsuleCollider2D capsule;
     private SpriteRenderer spriteRenderer;
+    private Animator animator;
     private readonly List<object> movementLocks = new List<object>();
     private readonly List<object> carryLocks = new List<object>();
     private readonly List<object> rightLocks = new List<object>();
@@ -29,6 +33,7 @@ public sealed class PlayerMove : MonoBehaviour
         body = GetComponent<Rigidbody2D>();
         capsule = GetComponent<CapsuleCollider2D>();
         spriteRenderer = GetComponent<SpriteRenderer>();
+        animator = GetComponent<Animator>();
 
         body.gravityScale = gravityScale;
         body.freezeRotation = true;
@@ -53,6 +58,11 @@ public sealed class PlayerMove : MonoBehaviour
         if (Mathf.Abs(horizontalInput) > 0.01f)
         {
             spriteRenderer.flipX = horizontalInput < 0f;
+        }
+
+        if (animator != null)
+        {
+            animator.SetBool(IsMovingId, Mathf.Abs(body.velocity.x) > MoveAnimationThreshold);
         }
     }
 
