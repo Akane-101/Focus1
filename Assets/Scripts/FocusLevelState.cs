@@ -375,5 +375,23 @@ public sealed class FocusLevelState : MonoBehaviour
     {
         focusTransitionDuration = Mathf.Max(0.01f, focusTransitionDuration);
         unfocusedBlur = Mathf.Max(0f, unfocusedBlur);
+#if UNITY_EDITOR
+        if (!Application.isPlaying)
+        {
+            UnityEditor.EditorApplication.delayCall += EnsureCompositorInEditor;
+        }
+#endif
     }
+
+#if UNITY_EDITOR
+    private void EnsureCompositorInEditor()
+    {
+        if (this == null || gameObject == null || UnityEditor.EditorUtility.IsPersistent(this) || !gameObject.scene.IsValid())
+        {
+            return;
+        }
+
+        EnsureCompositor();
+    }
+#endif
 }

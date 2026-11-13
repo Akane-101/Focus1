@@ -164,7 +164,7 @@ public sealed class FocusLayerBlurRendererFeature : ScriptableRendererFeature
             RenderTextureDescriptor descriptor = renderingData.cameraData.cameraTargetDescriptor;
             descriptor.depthBufferBits = 0;
             descriptor.msaaSamples = 1;
-            descriptor.graphicsFormat = GraphicsFormat.R8G8B8A8_UNorm;
+            descriptor.graphicsFormat = GraphicsFormat.R16G16B16A16_SFloat;
 
             RenderingUtils.ReAllocateIfNeeded(ref compositeHandle, descriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: "_FocusLayerCompositeRT");
             RenderingUtils.ReAllocateIfNeeded(ref sharpHandle, descriptor, FilterMode.Bilinear, TextureWrapMode.Clamp, name: "_FocusLayerSharpRT");
@@ -241,6 +241,11 @@ public sealed class FocusLayerBlurRendererFeature : ScriptableRendererFeature
             }
 
             float blurAmount = compositor.GetBlurAmount(layer);
+            if (blurAmount <= 0.01f)
+            {
+                BlitOnto(command, sharpHandle, compositeHandle, material, BlendPass);
+                return;
+            }
             Blitter.BlitCameraTexture(command, sharpHandle, blurAHandle);
             RTHandle source = blurAHandle;
             RTHandle destination = blurBHandle;

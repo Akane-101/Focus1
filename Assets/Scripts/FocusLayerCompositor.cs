@@ -22,8 +22,16 @@ public sealed class FocusLayerCompositor : MonoBehaviour
         FocusLayer.Near
     };
 
+    [Header("Bloom")]
+    [Tooltip("Soft halo around existing highlights on the composited game image. 0 turns bloom off. Does not follow focus.")]
+    [SerializeField] [Range(0f, 8f)] private float bloomIntensity;
+    [Tooltip("Pixels brighter than this contribute to bloom. Lower values let more of the bright areas glow.")]
+    [SerializeField] [Range(0f, 2f)] private float bloomThreshold = 0.9f;
+
     private Camera mainCamera;
     private FocusLevelState levelState;
+    private Volume bloomVolume;
+    private Bloom bloom;
     private Material fxMaterial;
     private Color backgroundColor;
 
@@ -106,12 +114,44 @@ public sealed class FocusLayerCompositor : MonoBehaviour
 
     public float GetBlurAmount(FocusLayer layer)
     {
-        if (levelState == null)
+        FocusLayerView view = ViewFor(layer);
+        if (view != null)
         {
-            return 0f;
+            return view.BlurStrength;
         }
 
-        return levelState.UnfocusedBlur;
+        return levelState != null ? levelState.UnfocusedBlur : 0f;
+    }
+
+    public float BloomIntensity
+    {
+        get { return bloomIntensity; }
+    }
+
+    public float BloomThreshold
+    {
+        get { return bloomThreshold; }
+    }
+
+    private FocusLayerView[] layerViews;
+
+    private FocusLayerView ViewFor(FocusLayer layer)
+    {
+        if (layerViews == null)
+        {
+            layerViews = FindObjectsOfType<FocusLayerView>(true);
+        }
+
+        for (int i = 0; i < layerViews.Length; i++)
+        {
+            FocusLayerView view = layerViews[i];
+            if (view != null && view.RepresentedLayer == layer)
+            {
+                return view;
+            }
+        }
+
+        return null;
     }
 
     private void Awake()
@@ -181,6 +221,7 @@ public sealed class FocusLayerCompositor : MonoBehaviour
         ApplyMainCulling();
         EnsureResources();
         SyncLayerCameras();
+        ApplyBloom();
     }
 
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
@@ -267,6 +308,92 @@ public sealed class FocusLayerCompositor : MonoBehaviour
         {
             Destroy(fxMaterial);
         }
+
+        ReleaseBloomVolume();
+    }
+
+    private void ApplyBloom()
+    {
+        if (!urpLayerMode || mainCamera == null)
+        {
+            return;
+        }
+
+        if (bloom == null)
+        {
+            CreateBloomVolume();
+        }
+
+        if (bloom == null)
+        {
+            return;
+        }
+
+        bool enabled = bloomIntensity > 0.0001f;
+        bloom.active = enabled;
+        bloom.intensity.value = bloomIntensity;
+        bloom.threshold.value = bloomThreshold;
+
+        if (mainCameraData == null)
+        {
+            mainCameraData = mainCamera.GetUniversalAdditionalCameraData();
+        }
+
+        if (mainCameraData != null && mainCameraData.renderPostProcessing != enabled)
+        {
+            mainCameraData.renderPostProcessing = enabled;
+        }
+
+        if (enabled)
+        {
+            mainCamera.allowHDR = true;
+        }
+    }
+
+    private void CreateBloomVolume()
+    {
+        VolumeProfile profile = ScriptableObject.CreateInstance<VolumeProfile>();
+        profile.hideFlags = HideFlags.HideAndDontSave;
+        bloom = profile.Add<Bloom>(true);
+        bloom.intensity.Override(bloomIntensity);
+        bloom.threshold.Override(bloomThreshold);
+        bloom.scatter.Override(0.7f);
+        bloom.highQualityFiltering.Override(true);
+        bloom.active = bloomIntensity > 0.0001f;
+
+        GameObject volumeObject = new GameObject("Focus Bloom Volume");
+        volumeObject.hideFlags = HideFlags.DontSave;
+        volumeObject.layer = 0;
+        volumeObject.transform.SetParent(transform, false);
+        bloomVolume = volumeObject.AddComponent<Volume>();
+        bloomVolume.isGlobal = true;
+        bloomVolume.priority = 50f;
+        bloomVolume.weight = 1f;
+        bloomVolume.sharedProfile = profile;
+    }
+
+    private void ReleaseBloomVolume()
+    {
+        if (mainCameraData != null)
+        {
+            mainCameraData.renderPostProcessing = false;
+        }
+
+        if (bloomVolume == null)
+        {
+            bloom = null;
+            return;
+        }
+
+        VolumeProfile profile = bloomVolume.sharedProfile;
+        Destroy(bloomVolume.gameObject);
+        if (profile != null)
+        {
+            Destroy(profile);
+        }
+
+        bloomVolume = null;
+        bloom = null;
     }
 
     private void AssignWorldLayers()

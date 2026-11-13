@@ -306,6 +306,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   representedLayer: 1
+  blurStrength: 1.35
+  emissionIntensity: 0
+  emissionColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!4 &899032876
 Transform:
   m_ObjectHideFlags: 0
@@ -353,6 +356,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   representedLayer: 2
+  blurStrength: 1.35
+  emissionIntensity: 0
+  emissionColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!4 &907050636
 Transform:
   m_ObjectHideFlags: 0
@@ -950,6 +956,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   representedLayer: 0
+  blurStrength: 1.35
+  emissionIntensity: 0
+  emissionColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!4 &1830381175
 Transform:
   m_ObjectHideFlags: 0
@@ -977,6 +986,7 @@ GameObject:
   - component: {fileID: 1853989409}
   - component: {fileID: 1853989408}
   - component: {fileID: 1853989407}
+  - component: {fileID: 9100000001}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -1195,3 +1205,17 @@ SceneRoots:
   - {fileID: 1853989409}
   - {fileID: 491715696}
   - {fileID: 1493846832}
+--- !u!114 &9100000001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1853989406}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b2b16fde280cfd1459a70d8099c7eed3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  bloomIntensity: 0
+  bloomThreshold: 0.9

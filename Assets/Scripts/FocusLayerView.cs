@@ -3,10 +3,16 @@ using UnityEngine;
 public sealed class FocusLayerView : MonoBehaviour
 {
     [SerializeField] private FocusLayer representedLayer = FocusLayer.Mid;
+    [SerializeField] [Range(0f, 8f)] private float blurStrength = 2.2f;
 
     public FocusLayer RepresentedLayer
     {
         get { return representedLayer; }
+    }
+
+    public float BlurStrength
+    {
+        get { return blurStrength; }
     }
 
     private FocusLevelState levelState;
