@@ -14,6 +14,7 @@ public sealed class FocusLayerCompositor : MonoBehaviour
     private const string FarObjectName = "Depth_Far";
     private const string MidObjectName = "Depth_Mid";
     private const string NearObjectName = "Depth_Near";
+    private const string SharpLayerName = "FocusSharp";
 
     private static readonly FocusLayer[] CompositeOrder =
     {
@@ -48,6 +49,10 @@ public sealed class FocusLayerCompositor : MonoBehaviour
     private Camera playerCamera;
     private RenderTexture playerTexture;
     private RTHandle playerHandle;
+    private Camera sharpCamera;
+    private RenderTexture sharpTexture;
+    private RTHandle sharpHandle;
+    private UniversalAdditionalCameraData sharpCameraData;
     private int textureWidth;
     private int textureHeight;
     private int originalCullingMask;
@@ -80,6 +85,11 @@ public sealed class FocusLayerCompositor : MonoBehaviour
     public RTHandle GetPlayerHandle()
     {
         return playerHandle;
+    }
+
+    public RTHandle GetSharpHandle()
+    {
+        return sharpHandle;
     }
 
     public bool DrawsPlayerInCurrentLayer
@@ -177,6 +187,7 @@ public sealed class FocusLayerCompositor : MonoBehaviour
             urpLayerMode = true;
             AssignWorldLayers();
             AssignPlayerLayer();
+            AssignSharpRenderers();
             SnapSharpness();
             CaptureBackground();
             mainCamera.backgroundColor = backgroundColor;
@@ -199,6 +210,7 @@ public sealed class FocusLayerCompositor : MonoBehaviour
         fxMaterial.hideFlags = HideFlags.HideAndDontSave;
         AssignWorldLayers();
         AssignPlayerLayer();
+        AssignSharpRenderers();
         SnapSharpness();
         CaptureBackground();
         ApplyMainCulling();
@@ -276,6 +288,14 @@ public sealed class FocusLayerCompositor : MonoBehaviour
             {
                 Graphics.Blit(playerTexture, composite, fxMaterial, BlendPass);
             }
+
+            if (layer == FocusLayer.Far && sharpTexture != null)
+            {
+                RenderTexture sharpOverlay = RenderTexture.GetTemporary(premulDescriptor);
+                Graphics.Blit(sharpTexture, sharpOverlay, fxMaterial, PremulPass);
+                Graphics.Blit(sharpOverlay, composite, fxMaterial, BlendPass);
+                RenderTexture.ReleaseTemporary(sharpOverlay);
+            }
         }
 
         Graphics.Blit(composite, destination);
@@ -300,6 +320,11 @@ public sealed class FocusLayerCompositor : MonoBehaviour
         if (playerCamera != null)
         {
             Destroy(playerCamera.gameObject);
+        }
+
+        if (sharpCamera != null)
+        {
+            Destroy(sharpCamera.gameObject);
         }
 
         ReleaseLayerTextures();
@@ -510,6 +535,12 @@ public sealed class FocusLayerCompositor : MonoBehaviour
             mask &= ~(1 << cameraModelLayer);
         }
 
+        int sharpLayer = LayerMask.NameToLayer(SharpLayerName);
+        if (sharpLayer >= 0)
+        {
+            mask &= ~(1 << sharpLayer);
+        }
+
         mainCamera.cullingMask = mask;
     }
 
@@ -518,7 +549,7 @@ public sealed class FocusLayerCompositor : MonoBehaviour
         int width = Mathf.Max(2, mainCamera.pixelWidth);
         int height = Mathf.Max(2, mainCamera.pixelHeight);
 
-        if (textureWidth == width && textureHeight == height && layerTextures[0] != null && playerTexture != null && playerHandle != null)
+        if (textureWidth == width && textureHeight == height && layerTextures[0] != null && playerTexture != null && playerHandle != null && sharpTexture != null && sharpHandle != null)
         {
             return;
         }
@@ -551,6 +582,17 @@ public sealed class FocusLayerCompositor : MonoBehaviour
         if (playerCamera == null)
         {
             playerCamera = CreateLayerCamera("FocusLayerCamera_Player");
+        }
+
+        if (sharpTexture == null)
+        {
+            sharpTexture = CreateLayerTexture("FocusLayerRT_Sharp");
+            sharpHandle = RTHandles.Alloc(sharpTexture);
+        }
+
+        if (sharpCamera == null)
+        {
+            sharpCamera = CreateLayerCamera("FocusLayerCamera_Sharp");
         }
     }
 
@@ -617,6 +659,32 @@ public sealed class FocusLayerCompositor : MonoBehaviour
         if (playerCamera != null && playerTexture != null && overlayPlayerLayer >= 0)
         {
             ConfigureOverlayCamera(playerCamera, ref playerCameraData, playerTexture, 1 << overlayPlayerLayer, -97, true);
+        }
+
+        AssignSharpRenderers();
+        int sharpLayer = LayerMask.NameToLayer(SharpLayerName);
+        if (sharpCamera != null && sharpTexture != null && sharpLayer >= 0)
+        {
+            ConfigureOverlayCamera(sharpCamera, ref sharpCameraData, sharpTexture, 1 << sharpLayer, -96, true);
+        }
+    }
+
+    private void AssignSharpRenderers()
+    {
+        int sharpLayer = LayerMask.NameToLayer(SharpLayerName);
+        if (sharpLayer < 0)
+        {
+            return;
+        }
+
+        FocusAlwaysSharp[] markers = FindObjectsOfType<FocusAlwaysSharp>(true);
+        for (int i = 0; i < markers.Length; i++)
+        {
+            FocusAlwaysSharp marker = markers[i];
+            if (marker != null)
+            {
+                marker.gameObject.layer = sharpLayer;
+            }
         }
     }
 
@@ -750,6 +818,14 @@ public sealed class FocusLayerCompositor : MonoBehaviour
             playerTexture.Release();
             Destroy(playerTexture);
             playerTexture = null;
+        }
+
+        sharpHandle = null;
+        if (sharpTexture != null)
+        {
+            sharpTexture.Release();
+            Destroy(sharpTexture);
+            sharpTexture = null;
         }
     }
 }

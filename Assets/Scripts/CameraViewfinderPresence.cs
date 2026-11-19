@@ -367,6 +367,13 @@ public sealed class CameraViewfinderPresence : MonoBehaviour
         pending = true;
         pendingLayer = layer;
         pendingTime = 0f;
+        if (pointerDown || motion == Motion.Drag)
+        {
+            return;
+        }
+
+        OnDragBegan();
+        motion = Motion.Release;
     }
 
     private void BeginFlash()

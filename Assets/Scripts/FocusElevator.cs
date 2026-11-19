@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[DefaultExecutionOrder(50)]
 public sealed class FocusElevator : MonoBehaviour
 {
     [SerializeField] private Transform car;
@@ -10,16 +11,22 @@ public sealed class FocusElevator : MonoBehaviour
     [SerializeField] private float endPause = 0.4f;
     [SerializeField] [Range(0f, 1f)] private float stickStrength = 0.22f;
 
+    private const float RideWalkSpeed = 6f;
+
     private FocusLevelState levelState;
     private Transform playerTransform;
     private Rigidbody2D playerBody;
+    private PlayerMove playerMove;
     private Collider2D playerCollider;
     private Collider2D carCollider;
+    private RigidbodyType2D playerBodyType = RigidbodyType2D.Dynamic;
     private Vector3 carStartPosition;
     private float bottomY;
     private float topY;
     private float motionStartTime;
     private bool isRiding;
+    private bool seatOnBoard;
+    private float carriedVelocityY;
 
     private void Awake()
     {
@@ -39,6 +46,7 @@ public sealed class FocusElevator : MonoBehaviour
     private void Start()
     {
         AlignTravelRange();
+        ApplyState();
 
         if (levelState == null || levelState.PlayerTransform == null)
         {
@@ -69,12 +77,16 @@ public sealed class FocusElevator : MonoBehaviour
         StopRiding();
     }
 
-    private void LateUpdate()
+    private void FixedUpdate()
     {
+        BindPlayer();
+        ApplyState();
         float previousY = car != null ? car.position.y : 0f;
         ApplyMotion();
+        Physics2D.SyncTransforms();
         float deltaY = car != null ? car.position.y - previousY : 0f;
-        UpdateRide(deltaY);
+        float platformVelocityY = Time.fixedDeltaTime > 0f ? deltaY / Time.fixedDeltaTime : 0f;
+        UpdateRide(platformVelocityY);
     }
 
     private void ResolveCar()
@@ -273,60 +285,200 @@ public sealed class FocusElevator : MonoBehaviour
         return 1f - Mathf.SmoothStep(0f, 1f, time / halfMove);
     }
 
-    private void UpdateRide(float deltaY)
+    private void BindPlayer()
     {
-        if (car == null || playerTransform == null || playerCollider == null || carCollider == null)
+        if (levelState == null)
+        {
+            levelState = FindObjectOfType<FocusLevelState>();
+        }
+
+        if (playerTransform == null && levelState != null)
+        {
+            playerTransform = levelState.PlayerTransform;
+        }
+
+        if (playerTransform == null)
+        {
+            PlayerMove playerMove = FindObjectOfType<PlayerMove>();
+            playerTransform = playerMove != null ? playerMove.transform : null;
+        }
+
+        if (playerTransform == null)
         {
             return;
         }
 
-        if (IsPlayerOnCar(0.28f, 0.18f))
+        if (playerBody == null)
         {
-            isRiding = true;
-            FollowCar(deltaY);
-            return;
+            playerBody = playerTransform.GetComponent<Rigidbody2D>();
         }
 
-        isRiding = false;
+        if (playerMove == null)
+        {
+            playerMove = playerTransform.GetComponent<PlayerMove>();
+        }
+
+        if (playerCollider == null)
+        {
+            playerCollider = playerTransform.GetComponent<Collider2D>();
+        }
     }
 
-    private void FollowCar(float deltaY)
+    private void UpdateRide(float platformVelocityY)
     {
-        float standY = carCollider.bounds.max.y + playerCollider.bounds.extents.y - 0.02f;
-        Vector2 nextPosition = playerBody != null ? playerBody.position : (Vector2)playerTransform.position;
-        nextPosition.y += deltaY;
-        nextPosition.y = Mathf.Lerp(nextPosition.y, standY, stickStrength);
-
-        if (playerBody != null)
+        if (car == null || playerTransform == null || playerCollider == null || playerBody == null || carCollider == null)
         {
-            if (playerBody.velocity.y < 0f)
-            {
-                playerBody.velocity = new Vector2(playerBody.velocity.x, 0f);
-            }
-
-            playerBody.position = nextPosition;
+            StopRiding();
+            return;
         }
 
+        if (!CanUseElevator())
+        {
+            StopRiding();
+            return;
+        }
+
+        float surfaceY = carCollider.bounds.max.y;
+        if (!isRiding)
+        {
+            if (!IsPlayerOnCar(surfaceY))
+            {
+                return;
+            }
+
+            StartRiding();
+        }
+
+        RideOnCar(surfaceY, platformVelocityY);
+    }
+
+    private bool CanUseElevator()
+    {
+        return levelState != null && levelState.CurrentLayer == rideLayer && carCollider != null && carCollider.enabled;
+    }
+
+    private void StartRiding()
+    {
+        isRiding = true;
+        playerBodyType = playerBody.bodyType;
+        playerBody.bodyType = RigidbodyType2D.Kinematic;
+        if (playerMove != null)
+        {
+            playerMove.SetCarried(this, true);
+        }
+
+        Physics2D.IgnoreCollision(playerCollider, carCollider, true);
+        seatOnBoard = true;
+    }
+
+    private void RideOnCar(float surfaceY, float platformVelocityY)
+    {
+        if (playerBody.bodyType != RigidbodyType2D.Kinematic)
+        {
+            playerBody.bodyType = RigidbodyType2D.Kinematic;
+        }
+
+        float input = playerMove != null && playerMove.IsMovementLocked ? 0f : Input.GetAxisRaw("Horizontal");
+        float nextX = playerBody.position.x + input * RideWalkSpeed * Time.fixedDeltaTime;
+        bool seated = false;
+        if (seatOnBoard)
+        {
+            nextX = SeatOntoCar(nextX);
+            seatOnBoard = false;
+            seated = true;
+        }
+
+        float overlap = HorizontalOverlap(nextX);
+        if (overlap < 0.1f)
+        {
+            StopRiding();
+            playerBody.velocity = new Vector2(input * RideWalkSpeed, platformVelocityY);
+            return;
+        }
+
+        float feetOffset = playerCollider.bounds.min.y - playerBody.position.y;
+        float seatClearance = Mathf.Lerp(0.04f, 0.06f, stickStrength);
+        float keptX = seated || Mathf.Abs(input) > 0.01f ? nextX : playerBody.position.x;
+        Vector2 nextPosition = new Vector2(keptX, surfaceY + seatClearance - feetOffset);
+        carriedVelocityY = platformVelocityY;
+        playerBody.position = nextPosition;
+        playerBody.velocity = new Vector2(input * RideWalkSpeed, platformVelocityY);
         playerTransform.position = new Vector3(nextPosition.x, nextPosition.y, playerTransform.position.z);
+        Physics2D.SyncTransforms();
+    }
+
+    private float SeatOntoCar(float bodyX)
+    {
+        const float targetOverlap = 0.35f;
+        if (HorizontalOverlap(bodyX) >= targetOverlap)
+        {
+            return bodyX;
+        }
+
+        float centerShift = playerCollider.bounds.center.x - playerBody.position.x;
+        float centerX = bodyX + centerShift;
+        float carMid = (carCollider.bounds.min.x + carCollider.bounds.max.x) * 0.5f;
+        float direction = centerX < carMid ? 1f : -1f;
+        float shifted = bodyX;
+        for (int i = 0; i < 6; i++)
+        {
+            shifted += direction * 0.08f;
+            if (HorizontalOverlap(shifted) >= targetOverlap)
+            {
+                return shifted;
+            }
+        }
+
+        return shifted;
+    }
+
+    private float HorizontalOverlap(float bodyX)
+    {
+        float centerX = bodyX + playerCollider.bounds.center.x - playerBody.position.x;
+        float extentsX = playerCollider.bounds.extents.x;
+        Bounds carBounds = carCollider.bounds;
+        return Mathf.Min(centerX + extentsX, carBounds.max.x) - Mathf.Max(centerX - extentsX, carBounds.min.x);
     }
 
     private void StopRiding()
     {
+        if (!isRiding)
+        {
+            return;
+        }
+
         isRiding = false;
+        seatOnBoard = false;
+        carriedVelocityY = 0f;
+        if (playerCollider != null && carCollider != null)
+        {
+            Physics2D.IgnoreCollision(playerCollider, carCollider, false);
+        }
+
+        if (playerMove != null)
+        {
+            playerMove.SetCarried(this, false);
+        }
+
+        if (playerBody != null)
+        {
+            playerBody.bodyType = playerBodyType;
+        }
     }
 
-    private bool IsPlayerOnCar(float belowTop, float aboveTop)
+    private bool IsPlayerOnCar(float surfaceY)
     {
-        if (levelState == null || levelState.CurrentLayer != rideLayer || carCollider == null || !carCollider.enabled)
+        if (!CanUseElevator())
         {
             return false;
         }
 
-        Bounds carBounds = carCollider.bounds;
-        Bounds playerBounds = playerCollider.bounds;
-        bool overlapX = playerBounds.max.x > carBounds.min.x && playerBounds.min.x < carBounds.max.x;
-        float feetY = playerBounds.min.y;
-        bool onTop = feetY >= carBounds.max.y - belowTop && feetY <= carBounds.max.y + aboveTop;
-        return overlapX && onTop;
+        if (HorizontalOverlap(playerBody.position.x) < 0.08f)
+        {
+            return false;
+        }
+
+        float gap = playerCollider.bounds.min.y - surfaceY;
+        return gap >= -0.55f && gap <= 0.4f;
     }
 }

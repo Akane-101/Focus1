@@ -261,6 +261,10 @@ public sealed class CameraFocusDrag : MonoBehaviour, IBeginDragHandler, IDragHan
         caught = StopIndex(lastLayer);
         suppressed = -1;
         ApplyPose();
+        if (FocusSnapped != null)
+        {
+            FocusSnapped(lastLayer);
+        }
     }
 
     private void FollowPointer(PointerEventData eventData)

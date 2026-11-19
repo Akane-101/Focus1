@@ -31,6 +31,7 @@ public sealed class FocusLevelState : MonoBehaviour
     private const int FarSortingOrder = 10;
     private const int MidSortingOrder = 20;
     private const int NearSortingOrder = 30;
+    private const int FocusStepCount = 3;
 
     [SerializeField] private FocusLayer initialLayer = FocusLayer.Mid;
     [SerializeField] private FocusStage initialStage = FocusStage.OpenGate;
@@ -128,6 +129,65 @@ public sealed class FocusLevelState : MonoBehaviour
 
         CurrentLayer = nextLayer;
         NotifyStateChanged();
+    }
+
+    public bool StepTowardNear()
+    {
+        return TryStepLayer(1);
+    }
+
+    public bool StepTowardFar()
+    {
+        return TryStepLayer(-1);
+    }
+
+    private bool TryStepLayer(int direction)
+    {
+        int index = FocusStepIndex(CurrentLayer);
+        int nextIndex = index + direction;
+        if (nextIndex < 0 || nextIndex >= FocusStepCount)
+        {
+            return false;
+        }
+
+        FocusLayer nextLayer = FocusStepAt(nextIndex);
+        if (nextLayer == CurrentLayer)
+        {
+            return false;
+        }
+
+        SetLayer(nextLayer);
+        return true;
+    }
+
+    private static int FocusStepIndex(FocusLayer layer)
+    {
+        if (layer == FocusLayer.Far)
+        {
+            return 0;
+        }
+
+        if (layer == FocusLayer.Mid)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
+    private static FocusLayer FocusStepAt(int index)
+    {
+        if (index <= 0)
+        {
+            return FocusLayer.Far;
+        }
+
+        if (index == 1)
+        {
+            return FocusLayer.Mid;
+        }
+
+        return FocusLayer.Near;
     }
 
     public void AdvanceStage(FocusStage nextStage)

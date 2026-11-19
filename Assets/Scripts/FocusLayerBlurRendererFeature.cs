@@ -197,6 +197,7 @@ public sealed class FocusLayerBlurRendererFeature : ScriptableRendererFeature
 
             CompositeLayer(command, FocusLayer.Far);
             CompositePlayerIfCurrent(command, FocusLayer.Far);
+            CompositeAlwaysSharp(command);
             CompositeLayer(command, FocusLayer.Mid);
             CompositePlayerIfCurrent(command, FocusLayer.Mid);
             CompositeLayer(command, FocusLayer.Near);
@@ -221,6 +222,18 @@ public sealed class FocusLayerBlurRendererFeature : ScriptableRendererFeature
             }
 
             Blitter.BlitCameraTexture(command, playerHandle, sharpHandle, material, PremulPass);
+            BlitOnto(command, sharpHandle, compositeHandle, material, BlendPass);
+        }
+
+        private void CompositeAlwaysSharp(CommandBuffer command)
+        {
+            RTHandle overlay = compositor.GetSharpHandle();
+            if (overlay == null)
+            {
+                return;
+            }
+
+            Blitter.BlitCameraTexture(command, overlay, sharpHandle, material, PremulPass);
             BlitOnto(command, sharpHandle, compositeHandle, material, BlendPass);
         }
 

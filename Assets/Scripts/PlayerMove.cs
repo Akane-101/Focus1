@@ -184,6 +184,14 @@ public sealed class PlayerMove : MonoBehaviour
 
         if (onSlope)
         {
+            if (Mathf.Abs(targetSpeed) <= 0.01f)
+            {
+                body.gravityScale = 0f;
+                body.velocity = Vector2.zero;
+                return;
+            }
+
+            body.gravityScale = gravityScale;
             Vector2 tangent = new Vector2(groundNormal.y, -groundNormal.x);
             if (tangent.x < 0f)
             {
@@ -195,6 +203,7 @@ public sealed class PlayerMove : MonoBehaviour
             return;
         }
 
+        body.gravityScale = gravityScale;
         float nextHorizontalVelocity = Mathf.MoveTowards(body.velocity.x, targetSpeed, accelerationRate * Time.fixedDeltaTime);
         body.velocity = new Vector2(nextHorizontalVelocity, body.velocity.y);
     }

@@ -70,11 +70,11 @@ public sealed class PlayerChangeLayer : MonoBehaviour
         }
         else if (Input.GetKeyDown(KeyCode.Q))
         {
-            levelState.SetLayer(GetPreviousLayer(levelState.CurrentLayer));
+            levelState.StepTowardNear();
         }
         else if (Input.GetKeyDown(KeyCode.E))
         {
-            levelState.SetLayer(GetNextLayer(levelState.CurrentLayer));
+            levelState.StepTowardFar();
         }
     }
 
@@ -94,31 +94,5 @@ public sealed class PlayerChangeLayer : MonoBehaviour
         }
 
         spriteRenderer.sortingOrder = levelState.GetSortingOrder(levelState.CurrentLayer, FocusLevelState.PlayerOrderOffset);
-    }
-
-    private static FocusLayer GetPreviousLayer(FocusLayer currentLayer)
-    {
-        switch (currentLayer)
-        {
-            case FocusLayer.Far:
-                return FocusLayer.Mid;
-            case FocusLayer.Mid:
-                return FocusLayer.Near;
-            default:
-                return FocusLayer.Far;
-        }
-    }
-
-    private static FocusLayer GetNextLayer(FocusLayer currentLayer)
-    {
-        switch (currentLayer)
-        {
-            case FocusLayer.Far:
-                return FocusLayer.Near;
-            case FocusLayer.Mid:
-                return FocusLayer.Far;
-            default:
-                return FocusLayer.Mid;
-        }
     }
 }
